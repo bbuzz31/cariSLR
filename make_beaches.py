@@ -1,7 +1,6 @@
 import xarray as xr
 import rioxarray as xrr
-
-from SL.SFEI import *
+from shared import *
 
 
 class MakeBeaches(CARIRegion):
@@ -187,6 +186,3 @@ if __name__ == '__main__':
     print (f'Begun {region}')
     make_beaches(region, scen, path_wd, use_s2=False, test=False)
     concat_beaches(region, scen, path_wd, use_s2=False)
-
-    CARIRegion(region)
-    MakeBeaches(region)

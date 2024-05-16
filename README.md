@@ -1,2 +1,3 @@
-# SLR_CA_Coast
-Hazard assessment of SLR to CA Coast
+# cariSLR
+
+Hazard assessment of SLR to CA Coast using CARI: https://www.sfei.org/cari
