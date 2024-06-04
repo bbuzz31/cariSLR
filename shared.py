@@ -155,3 +155,59 @@ class SetupProj(CARIRegion):
             self.da_mhw0, self.da_mhw_slr = lst_das
             
         return
+
+
+## paths might be wrong
+def get_enso_map(epsgi, verbose=False):
+    """ make a map of ENSO filenames to their bounds in a specific EPSG """
+    from shapely.geometry import box
+    paths, polys = [], []
+    wd  = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
+    path_enso = wd / 'dems' / 'West_Coast_El_Nino'
+    dst = path_enso / f'enso_map_{epsgi}.GeoJSON'
+    if dst.exists():
+        # print (f'Using existing enso filename map for EPSG: {epsgi}') if verbose else ''
+        return gpd.read_file(dst)
+
+    lst_dems = sorted(list((path_enso / 'UTM10').glob('*.tif')))
+    if epsgi == 26911:
+        lst_dems = sorted(lst_dems + list((path_enso / 'UTM11').glob('*.tif')))
+    
+    ## ENSO is UTM10, want to convert to 3717 or 26911(South)
+    for i, enso in enumerate(lst_dems):
+        da_enso = xrr.open_rasterio(enso).sel(band=1)
+        gser_enso = gpd.GeoSeries(box(*da_enso.rio.bounds()), crs=da_enso.rio.crs)
+        poly = gser_enso.to_crs(epsgi).geometry.item()
+        if i % 100 == 0:
+            print (f'Projecting bounds to: {enso.stem}, {i} of {len(lst_dems)}')
+
+        paths.append(str(enso))
+        polys.append(poly)
+
+#         if i == 2:
+#             break
+
+    gdf = gpd.GeoDataFrame(paths, geometry=polys, columns=['path'], crs=epsgi)
+    gdf.to_file(dst)
+    print (f'Wrote enso to dem map for EPSG: {epsgi}')
+    return gdf
+
+
+def get_enso_dem(wsen, epsgi=None, gdf_enso=None):
+    """ Use the CONED raster wesn bounds to find the ENSO file that contains it """
+    from shapely.geometry import box, Polygon
+    assert epsgi is not None or gdf_enso is not None, 'Specify epsgi or pass the loaded enso map gdf'
+    if epsgi is None:
+        # get ENSO dem total coverage
+        gdf_enso  = get_enso_map(epsgi)
+
+    poly = box(*wsen) if not isinstance(wsen, Polygon) else wsne # the CoNED DEM
+
+    # iterate over each ENSO polygon tile
+    paths = []
+    for i, geom in enumerate(gdf_enso.geometry):
+        if geom.intersects(poly):
+            paths.append(gdf_enso.path[i])
+
+    return paths
+

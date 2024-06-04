@@ -2,6 +2,32 @@ import xarray as xr
 import rioxarray as xrr
 from shared import *
 
+def compare_elevations_poly(poly, da_dem_in, da_mw_0, da_mw_slr, kind='MLLW'):
+    """ The actual work: compare the DEM elevations within the poly against  current/future SLR """
+    assert kind.upper() in 'MLLW MHW MTL'.split(), f'Incorrect kind: {kind}'
+    if kind.upper() == 'MLLW':
+        da_mw_0_poly = da_mw_0.rio.clip([poly], da_mw_0.rio.crs, all_touched=True)
+        da_mw_slr_poly = da_mw_slr.rio.clip([poly], da_mw_slr.rio.crs, all_touched=True)
+        
+        da_dem_mw_0_poly = (da_dem_in>da_mw_0_poly).astype(int)
+        da_dem_mw_slr_poly = (da_dem_in>da_mw_slr_poly).astype(int)
+ 
+        # preserve nodata values in dem for more accurate percentages
+        da_dem_mw_0_poly = da_dem_mw_0_poly.where(~da_dem_in.isnull())
+        da_dem_mw_slr_poly = da_dem_mw_slr_poly.where(~da_dem_in.isnull())
+        
+        pct0  = 100*(da_dem_mw_0_poly.mean())
+        pct1  = 100*(da_dem_mw_slr_poly.mean())
+        pct_lost = pct0-pct1
+        msg = f'\n\tLoss due to MLLW: {pct0.item():.3f} {pct1.item():.3f}. Lost: {pct_lost.item():.3f}% ' 
+        print (msg)
+        
+        scen = da_mw_slr.attrs['scenario']
+        df_mw = da_dem_mw_0_poly.rename('MLLW').to_dataframe()['MLLW'].reset_index().dropna()
+        df_mw_slr = da_dem_mw_slr_poly.rename(scen).to_dataframe()[scen].reset_index().dropna()
+        df_mw[scen] = df_mw_slr[scen]
+    return df_mw
+
 
 def make_rocky_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, test=False):
     tstl     = '_test' if test else ''
@@ -12,6 +38,7 @@ def make_rocky_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, t
     path_log = Obj.path_res / f'log_{Obj.region.title()}_{kind0}_pct{tstl}{s2}.txt'
     logf     = open(path_log, 'a')
     st0      = time.time()
+    gdf_enso_map = get_enso_map(Obj.epsg) # enso dem path and its bounds
     
     lst_gsers = []
     # iterate over all DEM tiles
@@ -51,7 +78,7 @@ def make_rocky_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, t
             continue
             
         
-        # interpolate the mllw and mhw to the 1m tiles
+        # interpolate the mllw and mhw to the 1m coned tiles
         da_mllw_re     = Obj.da_mllw0.interp_like(da_dem, method='linear')
         da_mllw_slr_re = Obj.da_mllw_slr.interp_like(da_dem, method='linear')
         
@@ -59,7 +86,7 @@ def make_rocky_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, t
         da_mhw_slr_re = Obj.da_mhw_slr.interp_like(da_dem, method='linear')
         
         elapi = time.time()-sti
-        msg   = f'Preparing DEM and MLLW took {elapi/60:.2f} min.'
+        msg   = f'Preparing DEM, MLLW, MHW took {elapi/60:.2f} min.'
         print (msg)
         print (msg, file=logf)
         logf.flush()
@@ -70,6 +97,7 @@ def make_rocky_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, t
         for j, (poly_ix, row) in enumerate(gdf_cari_tile.iterrows()):
             stj = time.time()
             poly = row.geometry
+            cari_id = row['CARI_id']
             
             da_dem1 = da_dem.rio.clip([poly], gdf_cari_tile.crs, drop=True, invert=False, all_touched=True)
             if da_dem1.isnull().all():
@@ -87,18 +115,13 @@ def make_rocky_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, t
             da_mhw_slri = da_mhw_slr_re.rio.clip([poly], gdf_cari_tile.crs, drop=True, invert=False, all_touched=True)
 
         
-            # compare elevations against MLLW (coned criteria 1) --- ELEVATION ABOVE MLLW
-            da_dem_mllw0i    = (da_dem1>da_mllw0i).astype(int)
-            da_dem_mllw_slri = (da_dem1>da_mllw_slri).astype(int)
-            # preserve nodata values in dem for more accurate percentages
-            da_dem_mllw0i    = da_dem_mllw0i.where(~da_dem1.isnull())
-            da_dem_mllw_slri = da_dem_mllw_slri.where(~da_dem1.isnull())
-            
-            pct0  = 100*(da_dem_mllw0i.mean())
-            pct1  = 100*(da_dem_mllw_slri.mean())
-            pct_lost = pct0-pct1
+            # ------- compare elevations against MLLW (coned criteria 1) --- ELEVATION ABOVE MLLW
+            msg = f'{dem.stem}, polyix={poly_ix} cari id={cari_id}: '\
+            print (msg)
+            print (msg, file=logf)
+            df_mllw = compare_elevations_poly(poly, da_dem1, da_mllw0i, da_mllw_slri, 'MLLW')
 
-            # compare CONED elevations against MHW --- ELEVATION BELOW MHW
+            # ------ compare CONED elevations against MHW --- ELEVATION BELOW MHW
             da_dem_mhw0i    = (da_dem1<da_mhw0i).astype(int)
             da_dem_mhw_slri = (da_dem1<da_mhw_slri).astype(int)
             # preserve nodata values in dem for more accurate percentages
@@ -108,37 +131,66 @@ def make_rocky_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, t
             pct1_mhw  = 100*(da_dem_mhw_slri.mean())
             pct_lost_mhw = pct0_mhw-pct1_mhw
             
-            # compare ENSO elevations against MHW (---- todo)
-            ####
+            # ------- compare ENSO elevations against MHW 
+            gdf_enso_map_poly = gdf_enso_map[gdf_enso_map.contains(poly)]
+            if gdf_enso_map_poly.empty:
+                msg= (f'No ENSO dem contains polygon cari_id={cari_id}, poly_ix={poly_ix}, skipping.') 
+                print (msg)
+                print (msg, file=logf) 
+                continue
+                
+            elif gdf_enso_map_poly.shape[0]>1:
+                msg = (f'More than 1 ENSO dem contains polygon cari_id={cari_id}, poly_ix={poly_ix}, skipping (for now).') 
+                print (msg)
+                print (msg, file=logf) 
+                continue
+                
+            da_enso_dem = xrr.open_rasterio(gdf_enso_map_poly['path'].item())
+            da_enso_dem_re = da_enso_dem.rio.reproject(Obj.epsg).sel(band=1)
+            da_enso_dem_re = da_enso_dem_re.where(da_enso_dem_re>-1e20)
+            da_enso_dem_re.rio.write_nodata(da_enso_dem_re.rio.nodata, encoded=True, inplace=True)
+            # downsample from 0.5 m to 1 m horizontal resolution to match CoNED and MLLW/MHW
+            da_enso_dem_re1 = da_enso_dem_re.interp_like(da_dem1, method='linear')
+            da_enso_dem_re_poly = da_enso_dem_re1.rio.clip([poly], da_enso_dem_re1.rio.crs, drop=True, invert=False, all_touched=True)
             
-            msg = f'{dem.stem}, polyix={poly_ix} cari id={row["CARI_id"]}: '\
-                  f'\n\tLoss due to MLLW: {pct0.item():.3f} {pct1.item():.3f}. Lost: {pct_lost.item():.3f}% ' \
-                  f'\n\tLoss due to Coned MHW: {pct0_mhw.item():.3f} {pct1_mhw.item():.3f}. Lost: {pct_lost_mhw.item():.3f}%'
+            da_enso_mhw0i    = (da_enso_dem_re_poly<da_mhw0i).astype(int)
+            da_enso_mhw_slri = (da_enso_dem_re_poly<da_mhw_slri).astype(int)
             
-            print (msg)
-            print (msg, file=logf)
+            # preserve nodata values in dem for more accurate percentages
+            da_enso_mhw0i    = da_enso_mhw0i.where(~da_enso_dem_re_poly.isnull())
+            da_enso_mhw_slri = da_enso_mhw_slri.where(~da_enso_dem_re_poly.isnull())
+            pct0_mhw_enso  = 100*(da_enso_mhw0i.mean())
+            pct1_mhw_enso  = 100*(da_enso_mhw_slri.mean())
+            pct_lost_mhw_enso = pct0_mhw_enso-pct1_mhw_enso
+            
+            
+            # msg = 
+                  # f'\n\tLoss due to Coned MHW: {pct0_mhw.item():.3f} {pct1_mhw.item():.3f}. Lost: {pct_lost_mhw.item():.3f}% ' \
+                  # f'\n\tLoss due to ENSO MHW: {pct0_mhw_enso.item():.3f} {pct1_mhw_enso.item():.3f}. Lost: {pct_lost_mhw_enso.item():.3f}%'
+                  # f'\n\tLoss due to MLLW: {pct0.item():.3f} {pct1.item():.3f}. Lost: {pct_lost.item():.3f}% ' \
+            
+            # print (msg)
+            # print (msg, file=logf)
             logf.flush()
             
             scen    = da_mllw_slr_re.attrs['scenario']
             
-            df_mllw = da_dem_mllw0i.rename('MLLW').to_dataframe()['MLLW'].reset_index().dropna()
-            df_mllw_slr = da_dem_mllw_slri.rename(scen).to_dataframe()[scen].reset_index().dropna()
-            df_mllw[scen] = df_mllw_slr[scen]
             df_mllw['poly_ix'] = poly_ix
 
             
             df_mhw = da_dem_mhw0i.rename('MHW').to_dataframe()['MHW'].reset_index().dropna()
-            df_mhw_slr = da_dem_mhw_slri.rename(scen).to_dataframe()[f'{scen}'].reset_index().dropna()
-            df_mhw[f'{scen}_MHW'] = df_mhw_slr[f'{scen}']
+            df_mhw_slr = da_dem_mhw_slri.rename(scen).to_dataframe()[scen].reset_index().dropna()
+            df_mhw[f'{scen}_MHW'] = df_mhw_slr[scen]
 
             ## ENSO
-            # df_mhw = da_dem_mhw0i.rename('MHW').to_dataframe()['MHW'].reset_index().dropna()
-            # df_mhw_slr = da_dem_mhw_slri.rename(scen).to_dataframe()[f'{scen}_MHW'].reset_index().dropna()
-            # df_mhw[f'{scen}_MHW'] = df_mhw_slr[f'{scen}_MHW']
+            df_mhw_enso = da_enso_mhw0i.rename('MHW').to_dataframe()['MHW'].reset_index().dropna()
+            df_mhw_slr_enso = da_enso_mhw_slri.rename(scen).to_dataframe()[scen].reset_index().dropna()
+            df_mhw_enso[f'{scen}_MHW_ENSO'] = df_mhw_slr_enso[scen]
 
             ## at least for the coned, we should have all the same locations, so the same sizes.
             df_m = pd.merge(df_mllw, df_mhw, on='x y'.split())
-            assert df_m.shape[0] == df_mllw.shape[0] == df_mhw.shape[0], 'Shapes arent the same?'
+            df_m = pd.merge(df_m, df_mhw_enso, on='x y'.split())
+            assert df_m.shape[0] == df_mllw.shape[0] == df_mhw.shape[0] == df_mhw_enso.shape[0], 'Shapes arent the same?'
             
             lst_gdfs.append(df2gdf(df_m, 'all', epsg=Obj.epsg))
 
