@@ -6,17 +6,22 @@ from pathlib import Path
 import os.path as op
 from dataclasses import dataclass
 from typing import Literal
+import warnings
+import re
 
 import time
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import rioxarray as xrr
 
 from osgeo import gdal
 from shapely.geometry import Point
 from fiona.drvsupport import supported_drivers
 supported_drivers['LIBKML'] = 'rw'
 gdal.SetConfigOption('OGR_GEOJSON_MAX_OBJ_SIZE', '64000MB') # for fiona loading
+
+warnings.filterwarnings("ignore", message="The nodata value *", category=UserWarning, module="rioxarray.raster_writer")
 
 
 def df2gdf(path_df, attrcols=[], dst=None, epsg=4326):
@@ -73,7 +78,7 @@ def df2gdf(path_df, attrcols=[], dst=None, epsg=4326):
     return gdf
 
 
-class CARIRegion():
+class CARIRegion(object):
     """
     base class for CARI region (North, Central, South)
     Sets up the paths to the working director yand the DEM
@@ -103,10 +108,50 @@ class CARIRegion():
         return
 
     
-    def get_beaches(self):
-        path_beach = 'S2_Class_Polys/FINAL BEACH VECTOR.shp' if self.use_s2 else 'CARI_polygons/Cari_Beach.shp'
+    def get_cari(self, kind='beaches'):
+        assert kind.lower() in 'beaches rocky+beaches rocky'.split(), \
+        'Incorrect CARI type, choose "beaches", "rocky+beaches", or "rocky"'
+        if kind == 'beaches':
+            path_cari = 'S2_Class_Polys/FINAL BEACH VECTOR.shp' if self.use_s2 else 'CARI_polygons/Cari_Beach.shp'
+        elif kind == 'rocky':
+            path_cari = 'CARI_polygons/Cari_Rocky.shp'
+        else:
+            raise Exception('Not implemented')
         
-        gdf_beach = gpd.read_file(self.path_wd / path_beach)
-        gdf_beach_coned = gdf_beach.to_crs(self.epsg)
-        gdf_beach_coned.cx[self.Wr:self.Er, self.Sr:self.Nr]
-        return gdf_beach_coned
+        gdf_cari = gpd.read_file(self.path_wd / path_cari)
+        gdf_cari_coned = gdf_cari.to_crs(self.epsg)
+        gdf_cari_coned.cx[self.Wr:self.Er, self.Sr:self.Nr]
+        return gdf_cari_coned
+
+
+class SetupProj(CARIRegion):
+    def __init__(self, region, kind='beach', scen0='med_rsl2050', path_wd=None, use_s2=False):
+        super().__init__(region, path_wd, use_s2)
+        self.scen0 = scen0
+        self.kind0 = kind.lower()
+        self.set_slr('MLLW')
+        self.set_slr('MHW')
+        self.gdf_cari0 = self.get_cari(self.kind0)
+
+    
+    def set_slr(self, kind='MLLW'):
+        """ These are made in MLLW_SLR.ipynb """
+        kind = kind.upper()
+        assert kind in 'MLLW MHW'.split(), 'Choose MLLW or MHW'
+        lst_das = []
+        for scen in f'0 {self.scen0}'.split():
+            da_mllw = xrr.open_rasterio(self.path_wd / f'{kind}_SLR_{scen}.tif')
+            da_mllw_re = da_mllw.sel(band=1).rio.reproject(self.epsg)
+            da_mllw_re = da_mllw_re.where(da_mllw_re < 1e20, np.nan)
+            da_mllw_re.rio.write_nodata(da_mllw_re.rio.nodata, encoded=True, inplace=True)
+
+            # crop it to the coned region (N, Central, S)
+            da_mllw_re_crop = da_mllw_re.sel(x=slice(self.Wr, self.Er), y=slice(self.Nr, self.Sr))
+            lst_das.append(da_mllw_re_crop.assign_attrs(scenario=scen))
+
+        if kind == 'MLLW':
+            self.da_mllw0, self.da_mllw_slr = lst_das
+        elif kind == 'MHW':
+            self.da_mhw0, self.da_mhw_slr = lst_das
+            
+        return

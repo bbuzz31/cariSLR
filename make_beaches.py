@@ -2,36 +2,10 @@ import xarray as xr
 import rioxarray as xrr
 from shared import *
 
-
-class MakeBeaches(CARIRegion):
-    def __init__(self, region, scen0='med_rsl2050', path_wd=None, use_s2=False):
-        super().__init__(region, path_wd, use_s2)
-        self.scen0 = scen0
-        self.set_slr()
-        self.gdf_beaches0 = self.get_beaches()
-
-    
-    def set_slr(self):
-        """ These are made in MLLW_SLR.ipynb """
-        lst_das = []
-        for scen in f'0 {self.scen0}'.split():
-            da_mllw = xrr.open_rasterio(self.path_wd / f'MLLW_SLR_{scen}.tif')
-            da_mllw_re = da_mllw.sel(band=1).rio.reproject(self.epsg)
-            da_mllw_re = da_mllw_re.where(da_mllw_re < 1e20, np.nan)
-            da_mllw_re.rio.write_nodata(da_mllw_re.rio.nodata, encoded=True, inplace=True)
-
-            # crop it to the coned region (N, Central, S)
-            da_mllw_re_crop = da_mllw_re.sel(x=slice(self.Wr, self.Er), y=slice(self.Nr, self.Sr))
-            lst_das.append(da_mllw_re_crop.assign_attrs(scenario=scen))
-                                          
-        self.da_mllw0, self.da_mllw_slr = lst_das
-        return
-
-
 def make_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, test=False):
     tstl     = '_test' if test else ''
     s2       = '_s2' if use_s2 else ''
-    Obj      = MakeBeaches(region, scen, path_wd, use_s2)
+    Obj      = SetupProj(region, 'beach', scen, path_wd, use_s2)
     path_log = Obj.path_wd / f'log_{Obj.region.title()}_pct{tstl}{s2}.txt'
     logf     = open(path_log, 'a')
     st0      = time.time()
@@ -53,7 +27,7 @@ def make_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, test=Fa
         da_dem.rio.write_nodata(da_dem.rio.nodata, encoded=True, inplace=True)
 
         # crop beaches within this tile
-        gdf_beach_tile = Obj.gdf_beaches0.cx[wi:ei, si:ni]
+        gdf_beach_tile = Obj.gdf_cari0.cx[wi:ei, si:ni]
         n_polys = gdf_beach_tile.shape[0]
         if n_polys == 0:
             msg = f'No beach polygons within {dem.stem}'
