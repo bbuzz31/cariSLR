@@ -18,6 +18,10 @@ import rioxarray as xrr
 from osgeo import gdal
 from shapely.geometry import Point
 from fiona.drvsupport import supported_drivers
+
+from cariLog import log2file, logger as log
+
+
 supported_drivers['LIBKML'] = 'rw'
 gdal.SetConfigOption('OGR_GEOJSON_MAX_OBJ_SIZE', '64000MB') # for fiona loading
 
@@ -34,7 +38,7 @@ def df2gdf(path_df, attrcols=[], dst=None, epsg=4326):
     attrcol can be one string or list of strings
     """
     if isinstance(path_df, gpd.GeoDataFrame):
-        print ('Already a geodataframe')
+        log.debug ('Already a geodataframe')
         return path_df
 
     elif isinstance(path_df, (pd.DataFrame, pd.Series)):
@@ -46,7 +50,7 @@ def df2gdf(path_df, attrcols=[], dst=None, epsg=4326):
     df         = df.copy()
 
     if df.dropna(how='all').empty: 
-        print('Dataframe is empty or full of Nans')
+        log.error('Dataframe is empty or full of Nans')
         return gpd.GeoDataFrame()
 
     if int(epsg) == 4326:
@@ -74,7 +78,7 @@ def df2gdf(path_df, attrcols=[], dst=None, epsg=4326):
     if dst is not None:
         dst = f'{dst}.GeoJSON' if not dst.endswith('GeoJSON') else dst
         gdf.to_file(dst)
-        print (f'Wrote geodataframe to:\n\t{dst}')
+        log.info (f'Wrote geodataframe to:\n\t{dst}')
     return gdf
 
 
@@ -90,6 +94,7 @@ class CARIRegion(object):
         self.path_wd: str | Path = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'  if path_wd is None else path_wd
         self.use_s2 = use_s2
         self.path_res = Path(self.path_wd) / 'results'
+        self.path_enso_dems = self.path_res.parent / 'dems' / 'West_Coast_El_Nino'
         self.setup_region()
 
     
@@ -130,14 +135,14 @@ class SetupProj(CARIRegion):
         self.scen0 = scen0
         self.kind0 = kind.lower()
         self.set_slr('MLLW')
-        self.set_slr('MHW')
+        self.set_slr('MAH')
         self.gdf_cari0 = self.get_cari(self.kind0)
 
     
     def set_slr(self, kind='MLLW'):
         """ These are made in MLLW_SLR.ipynb """
         kind = kind.upper()
-        assert kind in 'MLLW MHW'.split(), 'Choose MLLW or MHW'
+        assert kind in 'MLLW MHW MAH'.split(), 'Choose MLLW, MHW, or MAH'
         lst_das = []
         for scen in f'0 {self.scen0}'.split():
             da_mllw = xrr.open_rasterio(self.path_wd / f'{kind}_SLR_{scen}.tif')
@@ -150,20 +155,19 @@ class SetupProj(CARIRegion):
             lst_das.append(da_mllw_re_crop.assign_attrs(scenario=scen))
 
         if kind == 'MLLW':
-            self.da_mllw0, self.da_mllw_slr = lst_das
+            self.da_mllw_0, self.da_mllw_slr = lst_das
         elif kind == 'MHW':
-            self.da_mhw0, self.da_mhw_slr = lst_das
-            
+            self.da_mhw_0, self.da_mhw_slr = lst_das
+        elif kind == 'MAH':
+            self.da_mah_0, self.da_mah_slr = lst_das
+ 
         return
 
 
-## paths might be wrong
-def get_enso_map(epsgi, verbose=False):
+def get_enso_map(path_enso, epsgi, verbose=False):
     """ make a map of ENSO filenames to their bounds in a specific EPSG """
     from shapely.geometry import box
     paths, polys = [], []
-    wd  = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
-    path_enso = wd / 'dems' / 'West_Coast_El_Nino'
     dst = path_enso / f'enso_map_{epsgi}.GeoJSON'
     if dst.exists():
         # print (f'Using existing enso filename map for EPSG: {epsgi}') if verbose else ''
@@ -179,35 +183,12 @@ def get_enso_map(epsgi, verbose=False):
         gser_enso = gpd.GeoSeries(box(*da_enso.rio.bounds()), crs=da_enso.rio.crs)
         poly = gser_enso.to_crs(epsgi).geometry.item()
         if i % 100 == 0:
-            print (f'Projecting bounds to: {enso.stem}, {i} of {len(lst_dems)}')
+            log.debug (f'Projecting bounds to: {enso.stem}, {i} of {len(lst_dems)}')
 
         paths.append(str(enso))
         polys.append(poly)
 
-#         if i == 2:
-#             break
-
     gdf = gpd.GeoDataFrame(paths, geometry=polys, columns=['path'], crs=epsgi)
     gdf.to_file(dst)
-    print (f'Wrote enso to dem map for EPSG: {epsgi}')
+    log.info (f'Wrote enso to dem map for EPSG: {epsgi}')
     return gdf
-
-
-def get_enso_dem(wsen, epsgi=None, gdf_enso=None):
-    """ Use the CONED raster wesn bounds to find the ENSO file that contains it """
-    from shapely.geometry import box, Polygon
-    assert epsgi is not None or gdf_enso is not None, 'Specify epsgi or pass the loaded enso map gdf'
-    if epsgi is None:
-        # get ENSO dem total coverage
-        gdf_enso  = get_enso_map(epsgi)
-
-    poly = box(*wsen) if not isinstance(wsen, Polygon) else wsne # the CoNED DEM
-
-    # iterate over each ENSO polygon tile
-    paths = []
-    for i, geom in enumerate(gdf_enso.geometry):
-        if geom.intersects(poly):
-            paths.append(gdf_enso.path[i])
-
-    return paths
-
