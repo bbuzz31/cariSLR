@@ -2,10 +2,11 @@ import xarray as xr
 import rioxarray as xrr
 from shared import *
 
+
 def make_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, test=False):
     tstl     = '_test' if test else ''
     s2       = '_s2' if use_s2 else ''
-    Obj      = SetupProj(region, 'beach', scen, path_wd, use_s2)
+    Obj      = SetupProj(region, 'beaches', scen, path_wd, use_s2)
     path_log = Obj.path_wd / f'log_{Obj.region.title()}_pct{tstl}{s2}.txt'
     logf     = open(path_log, 'a')
     st0      = time.time()
@@ -48,7 +49,7 @@ def make_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False, test=Fa
             
         
         # interpolate the mllw to the 1m tiles
-        da_mllw_re     = Obj.da_mllw0.interp_like(da_dem, method='linear')
+        da_mllw_re     = Obj.da_mllw_0.interp_like(da_dem, method='linear')
         da_mllw_slr_re = Obj.da_mllw_slr.interp_like(da_dem, method='linear')
         
         elapi = time.time()-sti

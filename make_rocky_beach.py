@@ -81,7 +81,7 @@ def main(region, habit='rocky', scen='med_rsl2050', path_wd=None, use_s2=False, 
     habit = habit.lower()
     tstl = '_test' if test else ''
     s2 = '_s2' if use_s2 else ''
-    assert habit in 'beaches rocky'.split(), f'Incorrect habit: {habit}'
+    assert habit in 'beach rocky'.split(), f'Incorrect habit: {habit}'
     if habit == 'rocky':
         assert not use_s2, f'Sentinel2 not supported yet for {habit}'
 
@@ -148,20 +148,24 @@ def main(region, habit='rocky', scen='med_rsl2050', path_wd=None, use_s2=False, 
             
             print (''); log.critical (f'{dem.stem}, polyix={poly_ix} cari id={cari_id}:')
             df_mllw = compare_elevations_poly(poly, da_dem1, da_mllw_re, da_mllw_slr_re, 'MLLW')
-            df_mah = compare_elevations_poly(poly, da_dem1, da_mah_re, da_mah_slr_re, 'MAH')
             
-            da_enso_dem = get_enso_poly(gdf_enso_map, da_dem1, poly)
-            if isinstance(da_enso_dem, int):
-                log.warning (f'{da_enso_dem} ENSO dems with polygon cari_id={cari_id}, poly_ix={poly_ix}, skipping.') 
-                continue
-            elif isinstance(da_enso_dem, str): # actual returns the path 
-                log.error(f'poly_ix={poly_ix}, cari_id={cari_id} not in ENSO DEM: {da_enso_dem}, skipping')
-                continue
+            if habit == 'rocky':
+                df_mah = compare_elevations_poly(poly, da_dem1, da_mah_re, da_mah_slr_re, 'MAH')
                 
-            df_mah_enso = compare_elevations_poly(poly, da_enso_dem, da_mah_re, da_mah_slr_re, 'MAH_ENSO')
-            
-            df_m = pd.merge(df_mllw, df_mah, on='x y'.split(), how='outer')
-            df_m = pd.merge(df_m, df_mah_enso, on='x y'.split(), how='outer')
+                da_enso_dem = get_enso_poly(gdf_enso_map, da_dem1, poly)
+                if isinstance(da_enso_dem, int):
+                    log.warning (f'{da_enso_dem} ENSO dems with polygon cari_id={cari_id}, poly_ix={poly_ix}, skipping.') 
+                    continue
+                elif isinstance(da_enso_dem, str): # actual returns the path 
+                    log.error(f'poly_ix={poly_ix}, cari_id={cari_id} not in ENSO DEM: {da_enso_dem}, skipping')
+                    continue
+                    
+                df_mah_enso = compare_elevations_poly(poly, da_enso_dem, da_mah_re, da_mah_slr_re, 'MAH_ENSO')
+                df_m = pd.merge(df_mllw, df_mah, on='x y'.split(), how='outer')
+                df_m = pd.merge(df_m, df_mah_enso, on='x y'.split(), how='outer')
+                del df_mah, da_enso_dem, df_mah_enso
+            else:
+                df_m = df_mllw
             df_m['poly_ix'] = poly_ix
             df_m['cari_id'] = cari_id
             
@@ -173,7 +177,7 @@ def main(region, habit='rocky', scen='med_rsl2050', path_wd=None, use_s2=False, 
             if test and j == 0:
                 return da_dem1, da_mllw_re, da_mllw_slr_re, df_m, poly
 
-            del df_m, da_dem1, df_mllw, df_mah, da_enso_dem, df_mah_enso
+            del df_m, da_dem1, df_mllw
                 
         gdf_tile = pd.concat(lst_gdfs)
         gdf_tile.to_file(path_res)
@@ -211,7 +215,7 @@ def concat_beaches(region, scen='med_rsl2050', path_wd=None, use_s2=False):
 
 if __name__ == '__main__':
     region = 'South'
-    habit  = 'rocky'
+    habit  = 'beach'
     scen   = 'med_rsl2050'
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
     log.critical (f'Begun {region}\n')

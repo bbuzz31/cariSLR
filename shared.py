@@ -88,7 +88,7 @@ class CARIRegion(object):
     Sets up the paths to the working director yand the DEM
     """
 
-    def __init__(self, region, path_wd=None, use_s2=True):
+    def __init__(self, region, path_wd=None, use_s2=False):
         assert region.title() in 'South Central North'.split(), 'Choose from South / Central / North'
         self.region = region.title()
         self.path_wd: str | Path = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'  if path_wd is None else path_wd
@@ -113,13 +113,15 @@ class CARIRegion(object):
         return
 
     
-    def get_cari(self, kind='beaches'):
-        assert kind.lower() in 'beaches rocky+beaches rocky'.split(), \
-        'Incorrect CARI type, choose "beaches", "rocky+beaches", or "rocky"'
-        if kind == 'beaches':
-            path_cari = 'S2_Class_Polys/FINAL BEACH VECTOR.shp' if self.use_s2 else 'CARI_polygons/Cari_Beach.shp'
+    def get_cari(self, kind='beach', new=True):
+        assert kind.lower() in 'beach rocky'.split(), \
+        'Incorrect CARI type, choose "beach", or "rocky"'
+        ext = 'GeoJSON' if new else 'shp'
+        log.debug(f'Using new polygons? {new}')
+        if kind == 'beach':
+            path_cari = 'S2_Class_Polys/FINAL BEACH VECTOR.shp' if self.use_s2 else f'CARI_polygons/Cari_Beach.{ext}'
         elif kind == 'rocky':
-            path_cari = 'CARI_polygons/Cari_Rocky.shp'
+            path_cari = f'CARI_polygons/Cari_Rocky.{ext}'
         else:
             raise Exception('Not implemented')
         
