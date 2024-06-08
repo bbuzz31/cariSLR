@@ -21,7 +21,6 @@ from fiona.drvsupport import supported_drivers
 
 from cariLog import log2file, logger as log
 
-
 supported_drivers['LIBKML'] = 'rw'
 gdal.SetConfigOption('OGR_GEOJSON_MAX_OBJ_SIZE', '64000MB') # for fiona loading
 
@@ -114,13 +113,13 @@ class CARIRegion(object):
 
     
     def get_cari(self, kind='beach', new=True):
-        assert kind.lower() in 'beach rocky'.split(), \
+        assert kind.lower() in 'beach rocky rocky_mllw'.split(), \
         'Incorrect CARI type, choose "beach", or "rocky"'
         ext = 'GeoJSON' if new else 'shp'
         log.debug(f'Using new polygons? {new}')
         if kind == 'beach':
             path_cari = 'S2_Class_Polys/FINAL BEACH VECTOR.shp' if self.use_s2 else f'CARI_polygons/Cari_Beach.{ext}'
-        elif kind == 'rocky':
+        elif kind in 'rocky rocky_mllw'.split():
             path_cari = f'CARI_polygons/Cari_Rocky.{ext}'
         else:
             raise Exception('Not implemented')
@@ -132,13 +131,13 @@ class CARIRegion(object):
 
 
 class SetupProj(CARIRegion):
-    def __init__(self, region, kind='beach', scen0='med_rsl2050', path_wd=None, use_s2=False):
+    def __init__(self, region, habit='beach', scen0='med_rsl2050', path_wd=None, use_s2=False):
         super().__init__(region, path_wd, use_s2)
         self.scen0 = scen0
-        self.kind0 = kind.lower()
+        self.habit0 = habit.lower()
         self.set_slr('MLLW')
         self.set_slr('MAH')
-        self.gdf_cari0 = self.get_cari(self.kind0)
+        self.gdf_cari0 = self.get_cari(self.habit0)
 
     
     def set_slr(self, kind='MLLW'):
