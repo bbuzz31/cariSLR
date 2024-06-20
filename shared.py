@@ -146,7 +146,7 @@ class SetupProj(CARIRegion):
         assert kind in 'MLLW MHW MAH'.split(), 'Choose MLLW, MHW, or MAH'
         lst_das = []
         for scen in f'0 {self.scen0}'.split():
-            da_mllw = xrr.open_rasterio(self.path_wd / f'{kind}_SLR_{scen}.tif')
+            da_mllw = xrr.open_rasterio(self.path_wd / 'tidal_datums' / f'{kind}_SLR_{scen}.tif')
             da_mllw_re = da_mllw.sel(band=1).rio.reproject(self.epsg)
             da_mllw_re = da_mllw_re.where(da_mllw_re < 1e20, np.nan)
             da_mllw_re.rio.write_nodata(da_mllw_re.rio.nodata, encoded=True, inplace=True)

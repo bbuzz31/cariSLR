@@ -1,5 +1,4 @@
 import xarray as xr
-import rioxarray as xrr
 from rioxarray.merge import merge_arrays
 import logging
 from shared import *
@@ -36,7 +35,6 @@ def get_enso_poly(gdf_enso_map_in, da_dem_in, poly_in):
     
     return da_enso_dem_re1.rio.clip([poly_in], da_dem_in.rio.crs, all_touched=True)
             
-
 
 def compare_elevations_poly(poly_in, da_dem_in, da_mw_0_in, da_mw_slr_in, kind='MLLW'):
     """ The actual work: compare the DEM elevations within the poly against  current/future SLR """
@@ -87,7 +85,7 @@ def compare_elevations_poly(poly_in, da_dem_in, da_mw_0_in, da_mw_slr_in, kind='
     return df_mw
 
 
-def main(region, habit='rocky', scen='med_rsl2050', path_wd=None, use_s2=False, test=False):
+def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test=False):
     habit = habit.lower()
     tstl = '_test' if test else ''
     s2 = '_s2' if use_s2 else ''
@@ -207,7 +205,7 @@ def main(region, habit='rocky', scen='med_rsl2050', path_wd=None, use_s2=False, 
     return 
 
 
-def concat_results(region, habit, scen='med_rsl2050', path_wd=None, use_s2=False):
+def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
     """ Concatenate the beaches/rocky into a single (big) geojson file (e.g. 'South_beaches.GeoJSON') 
 
     Alternatively try a netcdf
@@ -257,9 +255,12 @@ def concat_results(region, habit, scen='med_rsl2050', path_wd=None, use_s2=False
 
 if __name__ == '__main__':
     region = 'North'
-    habit  = 'rocky_mllw'
-    scen   = 'med_rsl2050'
+    habit  = 'beach'
+    # scen   = 'Int2050'
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
-    log.critical (f'Begun {habit} {region}\n')
-    main(region, habit, scen, path_wd, use_s2=False, test=False)
-    concat_results(region, habit, scen, path_wd, use_s2=False)
+    for scen0 in 'Low LowInt Int HighInt High'.split():
+        for year in [2050, 2100]:
+            scen = f'{scen0}{year}'
+            log.critical (f'Begun {habit} {region}, {scen}\n')
+            main(region, habit, scen, path_wd, use_s2=False, test=False)
+            concat_results(region, habit, scen, path_wd, use_s2=False)
