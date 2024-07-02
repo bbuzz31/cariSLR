@@ -3,6 +3,7 @@ from rioxarray.merge import merge_arrays
 import logging
 from shared import *
 
+
 def get_enso_poly(gdf_enso_map_in, da_dem_in, poly_in):
     """ Get the ENSO dem values within a polygon """
     gdf_enso_map_poly = gdf_enso_map_in[gdf_enso_map_in.intersects(poly_in)]
@@ -37,7 +38,10 @@ def get_enso_poly(gdf_enso_map_in, da_dem_in, poly_in):
             
 
 def compare_elevations_poly(poly_in, da_dem_in, da_mw_0_in, da_mw_slr_in, kind='MLLW'):
-    """ The actual work: compare the DEM elevations within the poly against  current/future SLR """
+    """ The actual work: compare the DEM elevations within the poly against current/future SLR 
+
+    For MAH (rocky), each pixel has a 1 if it's below MAH (good, rocky) or 0 if it's above (always dry)
+    """
     kind = kind.upper()
     assert kind in 'MLLW MAH MAH_ENSO'.split(), f'Incorrect kind: {kind}'
     scen = da_mw_slr_in.attrs['scenario']
@@ -102,7 +106,7 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test
     lst_gsers = []
     # iterate over all DEM tiles
     for i, dem in enumerate((Obj.path_ca_dems).glob(f'{Obj.stem}.tif')):
-        path_res = dem.parent / f'{dem.stem}_{habit}{tstl}{s2}.GeoJSON'
+        path_res = dem.parent / f'{dem.stem}_{habit}{tstl}{s2}_{scen}.GeoJSON'
         # dem = Obj.path_ca_dems / 'CentCA_south_Topobathy_CoNED_1m_B2.tif' for testing
         if path_res.exists() and not test:
             log.info (f'gdf of {habit} in tile {dem.stem} exists, skipping...')
@@ -200,13 +204,13 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test
         del gdf_tile, lst_gdfs, da_dem, da_dem_check, gdf_cari_tile
 
     elap_tot = time.time()-st0
-    log.critical (f'Finished writing epsg={Obj.epsg} CoNED {habit} Percents in {elap_tot/60:.2f} min.')
+    log.critical (f'Finished writing {region} {habit} Percents in {elap_tot/60:.2f} min.')
     log.info (f'Log file at: %s', path_log)
     return 
 
 
 def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
-    """ Concatenate the beaches/rocky into a single (big) geojson file (e.g. 'South_beaches.GeoJSON') 
+    """ Concatenate the beaches/rocky into a single csv') 
 
     Alternatively try a netcdf
     """
@@ -214,34 +218,36 @@ def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
     assert habit in 'beach rocky rocky_mllw'.split(), f'Incorrect habit: {habit}'
     Obj = SetupProj(region, habit, scen, path_wd, use_s2)
     s2_ext = '_s2' if use_s2 else ''
-    scen1 = scen.replace('_rsl', '')
-    paths_res = sorted(list(Obj.path_ca_dems.glob(f'*{habit}{s2_ext}.GeoJSON')))
+    paths_res = sorted(list(Obj.path_ca_dems.glob(f'*{habit}{s2_ext}_{scen}.GeoJSON')))
+    assert len(paths_res) > 0, 'No tiles found'
     
-    dst = Obj.path_res / f'{region}_{habit}{s2_ext}.csv' 
+    dst = Obj.path_res / f'{region}_{habit}_{scen}{s2_ext}.csv' 
 
     log.info (f'Concatenating: {len(paths_res)} {region} {habit} CoNED tiles')
     lst_gsers = []
-    cols0 = f'{scen1}_MLLW'
+    col0 = f'{scen}_MLLW'
     for i, path in enumerate(paths_res):
         log.info (f'Tile {i} of {len(paths_res)}') if i % 5 == 0  else ''
         gdfi  = gpd.read_file(path)
         # if this is 1, then we lost it; 1 is above MLLW 0 is below (1-0)
-        gdfi[f'{scen1}_MLLW'] = gdfi['MLLW'] - gdfi[f'{scen}_MLLW'] 
+        # - overwrites column name
+        gdfi[f'{scen}_MLLW'] = gdfi['MLLW'] - gdfi[f'{scen}_MLLW'] 
         gdfi['tile'] = path.stem.rstrip(f'_{habit}')
-        cols = cols0
+        cols = col0
         
         if habit == 'rocky':
             # temporary, for sanity (chg in rockychecks)
             gdfi = gdfi.rename(columns={'MAH': 'MAH_CONED', f'{scen}_MAH': f'{scen}_MAH_CONED'})
-            # if 1, we lost it, if 0 no change, if -1, we gained
-            gdfi[f"{scen1}_MAH_CONED"] = gdfi['MAH_CONED'] - gdfi[f'{scen}_MAH_CONED']
-            gdfi[f"{scen1}_MAH_ENSO"] = gdfi['MAH_ENSO'] - gdfi[f'{scen}_MAH_ENSO']
+            # if either is 1, then we call it good and rocky
+            gdfi['MAH'] = np.where((gdfi['MAH_CONED'] + gdfi['MAH_ENSO']) > 0, 1, 0) 
+            gdfi[f'{scen}_MAH'] = np.where((gdfi[f'{scen}_MAH_CONED'] + gdfi[f'{scen}_MAH_ENSO']) > 0, 1, 0) 
+            # if these 1, we lost it, if 0 no change, if -1, we gained
+            gdfi[f'{scen}_MAH'] = gdfi['MAH'] - gdfi[f'{scen}_MAH']  # -- this is final result
 
-            # only if both datasets are above the water level is it NOT rocky
-            gdfi['MAH'] = np.where(gdfi['MAH_CONED'] + gdfi['MAH_ENSO'] > 0, 1, 0)
-            gdfi[f'{scen}_MAH'] = np.where(gdfi[f'{scen}_MAH_CONED'] + gdfi[f'{scen}_MAH_ENSO'] > 0, 1, 0)
-            gdfi[f"{scen1}_MAH"] = gdfi['MAH'] - gdfi[f'{scen}_MAH']
-            cols = f'{cols0} {scen1}_MAH {scen1}_MAH_CONED {scen1}_MAH_ENSO'
+            # these overwrite and are kept in case want to look individually
+            gdfi[f"{scen}_MAH_CONED"] = gdfi['MAH_CONED'] - gdfi[f'{scen}_MAH_CONED']
+            gdfi[f"{scen}_MAH_ENSO"] = gdfi['MAH_ENSO'] - gdfi[f'{scen}_MAH_ENSO']
+            cols = f'{col0} {scen}_MAH {scen}_MAH_CONED {scen}_MAH_ENSO'
             
         gdfo = gdfi[f'{cols} poly_ix tile geometry'.split()]
         lst_gsers.append(gdfo)
@@ -254,13 +260,14 @@ def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
 
 
 if __name__ == '__main__':
-    region = 'North'
-    habit  = 'beach'
-    # scen   = 'Int2050'
+    region = 'South'
+    habits  = 'rocky'.split()
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
-    for scen0 in 'Low LowInt Int HighInt High'.split():
-        for year in [2050, 2100]:
-            scen = f'{scen0}{year}'
-            log.critical (f'Begun {habit} {region}, {scen}\n')
-            main(region, habit, scen, path_wd, use_s2=False, test=False)
-            concat_results(region, habit, scen, path_wd, use_s2=False)
+    for habit in habits:
+        # for scen0 in 'Low'.split():
+        for scen0 in 'Low IntLow Int IntHigh High'.split():
+            for year in [2050, 2100]:
+                scen = f'{scen0}{year}'
+                log.critical (f'Begun {habit} {region}, {scen}\n')
+                main(region, habit, scen, path_wd, use_s2=False, test=False)
+                concat_results(region, habit, scen, path_wd, use_s2=False)

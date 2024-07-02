@@ -28,7 +28,13 @@ def log2file(fname='error.log'):
     except:
         errorfile_handler.setLevel(logging.INFO)
 
-    logger.addHandler(errorfile_handler)
+    ## addded recently might not work
+    # Check if the logger already has handlers to avoid duplication
+    if not logger.hasHandlers():
+        logger.addHandler(errorfile_handler)
+        
+    # To avoid logger propagation
+    logger.propagate = False 
 
 
 class UnixColorFormatter(Formatter):
