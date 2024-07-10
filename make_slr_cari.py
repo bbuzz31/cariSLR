@@ -1,6 +1,7 @@
 import xarray as xr
 from rioxarray.merge import merge_arrays
 import logging
+import datetime
 from shared import *
 
 
@@ -40,6 +41,7 @@ def get_enso_poly(gdf_enso_map_in, da_dem_in, poly_in):
 def compare_elevations_poly(poly_in, da_dem_in, da_mw_0_in, da_mw_slr_in, kind='MLLW'):
     """ The actual work: compare the DEM elevations within the poly against current/future SLR 
 
+    For MLLW (beach), each pixel has a 1 if it's above mllw (dry, good) or below mllw (always wet, bad)
     For MAH (rocky), each pixel has a 1 if it's below MAH (good, rocky) or 0 if it's above (always dry)
     """
     kind = kind.upper()
@@ -93,12 +95,13 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test
     habit = habit.lower()
     tstl = '_test' if test else ''
     s2 = '_s2' if use_s2 else ''
+    today = datetime.datetime.today().date().strftime('%Y%m%d')
     assert habit in 'beach rocky rocky_mllw'.split(), f'Incorrect habit: {habit}'
     if habit == 'rocky':
         assert not use_s2, f'Sentinel2 not supported yet for {habit}'
 
     Obj  = SetupProj(region, habit, scen, path_wd, use_s2)
-    path_log = Obj.path_res / f'log_{Obj.region.title()}_{habit}_pct{tstl}{s2}.txt'
+    path_log = Obj.path_res / f'log_{Obj.region.title()}_{habit}_pct{tstl}{s2}_{today}.txt'
     log2file(path_log)
     st0  = time.time()
     gdf_enso_map = get_enso_map(Obj.path_enso_dems, Obj.epsg) # enso dem path and its bounds
@@ -108,9 +111,9 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test
     for i, dem in enumerate((Obj.path_ca_dems).glob(f'{Obj.stem}.tif')):
         path_res = dem.parent / f'{dem.stem}_{habit}{tstl}{s2}_{scen}.GeoJSON'
         # dem = Obj.path_ca_dems / 'CentCA_south_Topobathy_CoNED_1m_B2.tif' for testing
-        if path_res.exists() and not test:
-            log.info (f'gdf of {habit} in tile {dem.stem} exists, skipping...')
-            continue
+        # if path_res.exists() and not test:
+        #     log.info (f'gdf of {habit} in tile {dem.stem} exists, skipping...')
+        #     continue
         
         sti = time.time()
         # get the tile 
@@ -219,7 +222,10 @@ def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
     Obj = SetupProj(region, habit, scen, path_wd, use_s2)
     s2_ext = '_s2' if use_s2 else ''
     paths_res = sorted(list(Obj.path_ca_dems.glob(f'*{habit}{s2_ext}_{scen}.GeoJSON')))
-    assert len(paths_res) > 0, 'No tiles found'
+    
+    if not paths_res:
+        log.warning(f'No results found for {habit}{s2_ext}_{scen}')
+        return
     
     dst = Obj.path_res / f'{region}_{habit}_{scen}{s2_ext}.csv' 
 
@@ -236,9 +242,10 @@ def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
         cols = col0
         
         if habit == 'rocky':
-            # temporary, for sanity (chg in rockychecks)
+            # temporary, for sanity 
             gdfi = gdfi.rename(columns={'MAH': 'MAH_CONED', f'{scen}_MAH': f'{scen}_MAH_CONED'})
             # if either is 1, then we call it good and rocky
+            # note that because of the OR we may still gain on one condition but since it was already rocky on other condition there will be no change
             gdfi['MAH'] = np.where((gdfi['MAH_CONED'] + gdfi['MAH_ENSO']) > 0, 1, 0) 
             gdfi[f'{scen}_MAH'] = np.where((gdfi[f'{scen}_MAH_CONED'] + gdfi[f'{scen}_MAH_ENSO']) > 0, 1, 0) 
             # if these 1, we lost it, if 0 no change, if -1, we gained
@@ -259,15 +266,86 @@ def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
     return
 
 
+def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_s2=False):
+    """ Calculate the percent lost in each polygon and write to GeoJSON """
+    path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'  if path_wd is None else path_wd
+    path_res = path_wd / 'results'
+    scens = 'Low IntLow Int IntHigh High'.split()
+    lst_res = []
+    log.info(f'Calculating average within {habit} polygons')
+    for i, yeari in enumerate(years):
+        for sceni in scens:
+            sy = f'{sceni}{yeari}'
+            lst_paths = sorted(list(path_res.glob(f'*_{habit}_{sy}.csv')))
+    
+            for path in lst_paths:
+                reg, hab, sce =  path.stem.split('_')
+                dfi = pd.read_csv(path, index_col=0)
+                # do this in here cuz of different crs
+                BObj = CARIRegion(reg, path_wd, use_s2)
+                gdf_cari = BObj.get_cari(hab).to_crs(4326)
+                for poly, dfj in dfi.groupby('poly_ix'):
+                    tile = dfj['tile'].unique()
+                    # 1 means we lost it (MLLW) or (MAH)
+                    # -1 means we gained it (MAH)
+                    pct_lost = 100 * dfj[f'{sy}_MLLW'].mean()
+                    geom = gdf_cari.loc[poly].geometry
+                    if hab == 'beach':
+                        lst_res.append((poly, pct_lost, sceni, yeari, reg, geom)) 
+                        cols = 'cari_ix pct_lost scenario year region geometry'.split()
+                    elif hab == 'rocky':
+                        pct_gain = -100 * dfj[f'{sy}_MAH'].mean()
+                        
+                        if (dfj[f'{sy}_MLLW'] + dfj[f'{sy}_MAH'].abs()).max() > 1:
+                            print ('How are we losing AND gaining at the same point?')
+                            breakpoint()
+                        col_total = (dfj[f'{sy}_MAH'] + dfj[f'{sy}_MLLW'])
+                        if col_total.max() > 1:
+                            print ('How are we losing from both MLLW and MAH?')
+                            breakpoint()
+                        pct_total = -100*col_total.mean()
+                        lst_res.append((poly, pct_lost, pct_gain, pct_total, sceni, yeari, reg, geom)) 
+                        cols = 'cari_ix pct_lost pct_gain pct_total scenario year region geometry'.split()
+                        
+        df_res_poly = pd.DataFrame(lst_res, columns=cols)
+        gdf_res_poly = gpd.GeoDataFrame(df_res_poly)
+        
+        ## de-duplicate if necessary
+        dupe_polys = []
+        new_rows = []
+        for ix, dfi in gdf_res_poly.groupby('scenario year cari_ix'.split()):
+            if dfi.shape[0] > 1:
+                row = dfi.iloc[0].copy()
+                row['pct_lost'] = dfi['pct_lost'].mean()
+                if habit == 'rocky':
+                    row['pct_gain'] = dfi['pct_gain'].mean()
+                    row['pct_total'] = dfi['pct_total'].mean()
+                dupe_polys.append(row['cari_ix'].item())
+                new_rows.append(row)
+        
+        # get rid of the duplicate polygons (partly in different regions) and replace with mean
+        gdf_res_de = gdf_res_poly[~gdf_res_poly['cari_ix'].isin(dupe_polys)]
+        if dupe_polys:
+            # gdf_res_de = pd.concat([gdf_res_de, pd.concat(new_rows)]).sort_index()
+            gdf_res_de = pd.concat([gdf_res_de, gpd.GeoDataFrame(new_rows)]).sort_index()
+            
+        dst = path_res / f'{hab}_polygons_lost_{yeari}.GeoJSON' 
+        gdf_res_de.to_file(dst)
+        log.info(f'Wrote: {dst}')
+    return
+
+
 if __name__ == '__main__':
-    region = 'South'
+    region = 'Central'
     habits  = 'rocky'.split()
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
     for habit in habits:
-        # for scen0 in 'Low'.split():
         for scen0 in 'Low IntLow Int IntHigh High'.split():
             for year in [2050, 2100]:
                 scen = f'{scen0}{year}'
-                log.critical (f'Begun {habit} {region}, {scen}\n')
-                main(region, habit, scen, path_wd, use_s2=False, test=False)
-                concat_results(region, habit, scen, path_wd, use_s2=False)
+                # log.critical (f'Begun {habit} {region}, {scen}\n')
+    #             # main(region, habit, scen, path_wd, use_s2=False, test=False)
+                # concat_results(region, habit, scen, path_wd, use_s2=False)
+
+    # concat_results_poly('beach', path_wd=path_wd)
+    concat_results_poly('rocky', path_wd=path_wd)
