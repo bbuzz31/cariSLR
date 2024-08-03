@@ -120,21 +120,25 @@ class CARIRegion(object):
         if kind == 'beach':
             path_cari = 'S2_Class_Polys/FINAL BEACH VECTOR.shp' if self.use_s2 else f'CARI_polygons/Cari_Beach.{ext}'
         elif kind in 'rocky rocky_mllw'.split():
-            path_cari = f'CARI_polygons/Cari_Rocky.{ext}'
+            path_cari = 'S2_Class_Polys/FINAL ROCKY VECTOR.shp' if self.use_s2 else f'CARI_polygons/Cari_Rocky.{ext}'
         else:
             raise Exception('Not implemented')
         
         gdf_cari = gpd.read_file(self.path_wd / path_cari)
         gdf_cari_coned = gdf_cari.to_crs(self.epsg)
         gdf_cari_coned.cx[self.Wr:self.Er, self.Sr:self.Nr]
+        if self.use_s2:
+            gdf_cari_coned.drop(columns='id path'.split(), inplace=True)
+            gdf_cari_coned['CARI_id'] = gdf_cari_coned.index # dummy for later on
         return gdf_cari_coned
 
 
 class SetupProj(CARIRegion):
-    def __init__(self, region, habit='beach', scen0='med_rsl2050', path_wd=None, use_s2=False):
+    def __init__(self, region, habit='beach', scen0='Int2050', path_wd=None, use_vlm=False, use_s2=False):
         super().__init__(region, path_wd, use_s2)
         self.scen0 = scen0
         self.habit0 = habit.lower()
+        self.use_vlm = use_vlm
         self.set_slr('MLLW')
         self.set_slr('MAH')
         self.gdf_cari0 = self.get_cari(self.habit0)
@@ -142,11 +146,12 @@ class SetupProj(CARIRegion):
     
     def set_slr(self, kind='MLLW'):
         """ These are made in MLLW_SLR.ipynb """
+        vlm = '_VLM' if self.use_vlm else ''
         kind = kind.upper()
         assert kind in 'MLLW MHW MAH'.split(), 'Choose MLLW, MHW, or MAH'
         lst_das = []
         for scen in f'0 {self.scen0}'.split():
-            da_mllw = xrr.open_rasterio(self.path_wd / 'tidal_datums' / f'{kind}_SLR_{scen}.tif')
+            da_mllw = xrr.open_rasterio(self.path_wd / 'tidal_datums' / f'{kind}_SLR_{scen}{vlm}.tif')
             da_mllw_re = da_mllw.sel(band=1).rio.reproject(self.epsg)
             da_mllw_re = da_mllw_re.where(da_mllw_re < 1e20, np.nan)
             da_mllw_re.rio.write_nodata(da_mllw_re.rio.nodata, encoded=True, inplace=True)
@@ -175,10 +180,10 @@ def get_enso_map(path_enso, epsgi, verbose=False):
         return gpd.read_file(dst)
 
     lst_dems = sorted(list((path_enso / 'UTM10').glob('*.tif')))
-    if epsgi == 26911:
+    if epsgi == 26911 or epsgi == 4326:
         lst_dems = sorted(lst_dems + list((path_enso / 'UTM11').glob('*.tif')))
     
-    ## ENSO is UTM10, want to convert to 3717 or 26911(South)
+    ## ENSO is UTM10, want to convert to 3717 or 26911(South) (or 4326)
     for i, enso in enumerate(lst_dems):
         da_enso = xrr.open_rasterio(enso).sel(band=1)
         gser_enso = gpd.GeoSeries(box(*da_enso.rio.bounds()), crs=da_enso.rio.crs)

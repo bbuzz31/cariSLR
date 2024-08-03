@@ -6,7 +6,7 @@ from shared import *
 
 
 def get_enso_poly(gdf_enso_map_in, da_dem_in, poly_in):
-    """ Get the ENSO dem values within a polygon """
+    """ Get the ENSO dem values within a polygon and reproject/interpolate to the CoNED """
     gdf_enso_map_poly = gdf_enso_map_in[gdf_enso_map_in.intersects(poly_in)]
     if gdf_enso_map_poly.empty:
         return 0
@@ -91,17 +91,16 @@ def compare_elevations_poly(poly_in, da_dem_in, da_mw_0_in, da_mw_slr_in, kind='
     return df_mw
 
 
-def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test=False):
+def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use_s2=False, test=False):
     habit = habit.lower()
     tstl = '_test' if test else ''
     s2 = '_s2' if use_s2 else ''
+    vlm = '_vlm' if use_vlm else ''
     today = datetime.datetime.today().date().strftime('%Y%m%d')
     assert habit in 'beach rocky rocky_mllw'.split(), f'Incorrect habit: {habit}'
-    if habit == 'rocky':
-        assert not use_s2, f'Sentinel2 not supported yet for {habit}'
 
-    Obj  = SetupProj(region, habit, scen, path_wd, use_s2)
-    path_log = Obj.path_res / f'log_{Obj.region.title()}_{habit}_pct{tstl}{s2}_{today}.txt'
+    Obj  = SetupProj(region, habit, scen, path_wd, use_vlm, use_s2)
+    path_log = Obj.path_res / f'log_{Obj.region.title()}_{habit}_pct{tstl}{vlm}{s2}_{today}.txt'
     log2file(path_log)
     st0  = time.time()
     gdf_enso_map = get_enso_map(Obj.path_enso_dems, Obj.epsg) # enso dem path and its bounds
@@ -109,7 +108,7 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test
     lst_gsers = []
     # iterate over all DEM tiles
     for i, dem in enumerate((Obj.path_ca_dems).glob(f'{Obj.stem}.tif')):
-        path_res = dem.parent / f'{dem.stem}_{habit}{tstl}{s2}_{scen}.GeoJSON'
+        path_res = dem.parent / f'{dem.stem}_{habit}{tstl}{vlm}{s2}_{scen}.GeoJSON'
         # dem = Obj.path_ca_dems / 'CentCA_south_Topobathy_CoNED_1m_B2.tif' for testing
         # if path_res.exists() and not test:
         #     log.info (f'gdf of {habit} in tile {dem.stem} exists, skipping...')
@@ -212,22 +211,23 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_s2=False, test
     return 
 
 
-def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
+def concat_results(region, habit, scen='Int2050', path_wd=None, use_vlm=False, use_s2=False):
     """ Concatenate the beaches/rocky into a single csv') 
 
     Alternatively try a netcdf
     """
     habit = habit.lower()
     assert habit in 'beach rocky rocky_mllw'.split(), f'Incorrect habit: {habit}'
-    Obj = SetupProj(region, habit, scen, path_wd, use_s2)
+    Obj = SetupProj(region, habit, scen, path_wd, use_vlm, use_s2)
     s2_ext = '_s2' if use_s2 else ''
-    paths_res = sorted(list(Obj.path_ca_dems.glob(f'*{habit}{s2_ext}_{scen}.GeoJSON')))
+    vlm_ext = '_vlm' if use_vlm else ''
+    paths_res = sorted(list(Obj.path_ca_dems.glob(f'*{habit}{vlm_ext}{s2_ext}_{scen}.GeoJSON')))
     
     if not paths_res:
-        log.warning(f'No results found for {habit}{s2_ext}_{scen}')
+        log.warning(f'No results found for {habit}{vlm_ext}{s2_ext}_{scen}')
         return
     
-    dst = Obj.path_res / f'{region}_{habit}_{scen}{s2_ext}.csv' 
+    dst = Obj.path_res / f'{region}_{habit}_{scen}{vlm_ext}{s2_ext}.csv' 
 
     log.info (f'Concatenating: {len(paths_res)} {region} {habit} CoNED tiles')
     lst_gsers = []
@@ -266,17 +266,19 @@ def concat_results(region, habit, scen='Int2050', path_wd=None, use_s2=False):
     return
 
 
-def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_s2=False):
+def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm=False, use_s2=False):
     """ Calculate the percent lost in each polygon and write to GeoJSON """
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'  if path_wd is None else path_wd
     path_res = path_wd / 'results'
+    s2_ext = '_s2' if use_s2 else ''
+    vlm_ext = '_vlm' if use_vlm else ''
     scens = 'Low IntLow Int IntHigh High'.split()
     lst_res = []
     log.info(f'Calculating average within {habit} polygons')
     for i, yeari in enumerate(years):
         for sceni in scens:
             sy = f'{sceni}{yeari}'
-            lst_paths = sorted(list(path_res.glob(f'*_{habit}_{sy}.csv')))
+            lst_paths = sorted(list(path_res.glob(f'*_{habit}_{sy}{vlm_ext}{s2_ext}.csv')))
     
             for path in lst_paths:
                 reg, hab, sce =  path.stem.split('_')
@@ -329,23 +331,34 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_s2=
             # gdf_res_de = pd.concat([gdf_res_de, pd.concat(new_rows)]).sort_index()
             gdf_res_de = pd.concat([gdf_res_de, gpd.GeoDataFrame(new_rows)]).sort_index()
             
-        dst = path_res / f'{hab}_polygons_lost_{yeari}.GeoJSON' 
+        dst = path_res / f'{hab}_polygons_lost_{yeari}{vlm_ext}{s2_ext}.GeoJSON' 
         gdf_res_de.to_file(dst)
         log.info(f'Wrote: {dst}')
     return
 
+## all regions, all scenarios, all years, rocky and beach should be done for SLR only, CARI polygons
+## South beach 2050, all scenarios, VLM running (0802)
+## South rocky 2050, all scenarios, VLM running (0802)
+
+## South beach 2050, all scenarios, S2 running, VLM (0802)
+## South rocky 2050, all scenarios, S2 running, VLM (0802)
+
+
+
 
 if __name__ == '__main__':
-    region = 'Central'
+    region = 'South'
     habits  = 'rocky'.split()
+    use_vlm = True
+    use_s2 = True
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
     for habit in habits:
         for scen0 in 'Low IntLow Int IntHigh High'.split():
-            for year in [2050, 2100]:
+            for year in [2050]:#, 2100]:
                 scen = f'{scen0}{year}'
-                # log.critical (f'Begun {habit} {region}, {scen}\n')
-    #             # main(region, habit, scen, path_wd, use_s2=False, test=False)
-                # concat_results(region, habit, scen, path_wd, use_s2=False)
+                log.critical (f'Begun {habit} {region}, {scen}\n')
+                main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
+                concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
 
     # concat_results_poly('beach', path_wd=path_wd)
-    concat_results_poly('rocky', path_wd=path_wd)
+    # concat_results_poly('rocky', path_wd=path_wd)
