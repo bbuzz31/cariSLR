@@ -47,7 +47,7 @@ def get_vlm(path_wd, overwrite=False):
 def main(path_wd, year=2050, vlm=True):
     da_vlm = get_vlm(path_wd, overwrite=False)
     # convert to meters in the future and put 0 where nan
-    da_vlm_proj = da_vlm * (year-2026) / 1000
+    da_vlm_proj = da_vlm * (year-2024) / 1000
     da_vlm_proj = da_vlm_proj.where(da_vlm_proj.notnull(), 0)
     for kind in 'MLLW MAH'.split():
         da0 = get_tidal_datum(path_wd, kind) # 300 m

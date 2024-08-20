@@ -336,29 +336,38 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
         log.info(f'Wrote: {dst}')
     return
 
-## all regions, all scenarios, all years, rocky and beach should be done for SLR only, CARI polygons
-## South beach 2050, all scenarios, VLM running (0802)
-## South rocky 2050, all scenarios, VLM running (0802)
+ # all regions, all scenarios, all years, rocky and beach should be done for SLR only, CARI polygons
+ # South rocky vlm 2050 -- done
+ # South beach 2050, all scenarios, vlm -- done
+    # - need s2
 
-## South beach 2050, all scenarios, S2 running, VLM (0802)
-## South rocky 2050, all scenarios, S2 running, VLM (0802)
-
-
+# Central beach 2050, all scenarios vlm done
+    # need reg s2
+# 
+# North beach 2050 all scenarios vlm done
+    # need s2
+# 
+# 
+# running north/south s2 2050 only (0808) -- done???
+# running north 2100 vlm s2 and not s2 0809
 
 
 if __name__ == '__main__':
-    region = 'South'
     habits  = 'rocky'.split()
     use_vlm = True
-    use_s2 = True
+    use_s2  = True
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
     for habit in habits:
         for scen0 in 'Low IntLow Int IntHigh High'.split():
-            for year in [2050]:#, 2100]:
+            # for year in [2050]:#, 2100]:
+            year = 2050
+            for region in 'Central North'.split():
                 scen = f'{scen0}{year}'
                 log.critical (f'Begun {habit} {region}, {scen}\n')
                 main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
                 concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
 
+
+    ## only when all scenarios/years are done for CARI/CARI_VLM/S2/S2_VLM
     # concat_results_poly('beach', path_wd=path_wd)
     # concat_results_poly('rocky', path_wd=path_wd)
