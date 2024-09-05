@@ -109,10 +109,10 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
     # iterate over all DEM tiles
     for i, dem in enumerate((Obj.path_ca_dems).glob(f'{Obj.stem}.tif')):
         path_res = dem.parent / f'{dem.stem}_{habit}{tstl}{vlm}{s2}_{scen}.GeoJSON'
-        # dem = Obj.path_ca_dems / 'CentCA_south_Topobathy_CoNED_1m_B2.tif' for testing
-        # if path_res.exists() and not test:
-        #     log.info (f'gdf of {habit} in tile {dem.stem} exists, skipping...')
-        #     continue
+        # dem = Obj.path_ca_dems / 'CentCA_south_Topobathy_CoNED_1m_B3.tif' # for testing
+        if path_res.exists() and not test:
+            log.info (f'gdf of {habit} in tile {dem.stem} exists, skipping...')
+            continue
         
         sti = time.time()
         # get the tile 
@@ -171,7 +171,6 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
             
             if habit == 'rocky':
                 df_mah = compare_elevations_poly(poly, da_dem1, da_mah_re, da_mah_slr_re, 'MAH')
-                
                 da_enso_dem = get_enso_poly(gdf_enso_map, da_dem1, poly)
                 if isinstance(da_enso_dem, int):
                     log.warning (f'{da_enso_dem} ENSO dems with polygon cari_id={cari_id}, poly_ix={poly_ix}, skipping.') 
@@ -191,7 +190,7 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
             
             lst_gdfs.append(df2gdf(df_m, 'all', epsg=Obj.epsg))
 
-            if test and j == 0:
+            if test:
                 return da_dem1, da_mllw_re, da_mllw_slr_re, df_m, poly
 
             del df_m, da_dem1, df_mllw
@@ -273,15 +272,17 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
     s2_ext = '_s2' if use_s2 else ''
     vlm_ext = '_vlm' if use_vlm else ''
     scens = 'Low IntLow Int IntHigh High'.split()
-    lst_res = []
+    years = [years] if not isinstance(years, list) else years
+    # scens = 'High'.split()
     log.info(f'Calculating average within {habit} polygons')
     for i, yeari in enumerate(years):
+        lst_res = []
         for sceni in scens:
             sy = f'{sceni}{yeari}'
             lst_paths = sorted(list(path_res.glob(f'*_{habit}_{sy}{vlm_ext}{s2_ext}.csv')))
     
             for path in lst_paths:
-                reg, hab, sce =  path.stem.split('_')
+                reg, hab, sce =  path.stem.split('_')[:3]
                 dfi = pd.read_csv(path, index_col=0)
                 # do this in here cuz of different crs
                 BObj = CARIRegion(reg, path_wd, use_s2)
@@ -296,11 +297,12 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
                         lst_res.append((poly, pct_lost, sceni, yeari, reg, geom)) 
                         cols = 'cari_ix pct_lost scenario year region geometry'.split()
                     elif hab == 'rocky':
+                        # these are below MLLW in future; they are technically 'gained' cuz 
+                        # z was greater than MAH (too high) but now it's below; but they are below MLLW which matters more
+                        df_wrong = dfj[(dfj[f'{sy}_MLLW'] + dfj[f'{sy}_MAH'].abs()) > 1]
+                        dfj.loc[df_wrong.index, f'{sy}_MAH'] = 0
                         pct_gain = -100 * dfj[f'{sy}_MAH'].mean()
                         
-                        if (dfj[f'{sy}_MLLW'] + dfj[f'{sy}_MAH'].abs()).max() > 1:
-                            print ('How are we losing AND gaining at the same point?')
-                            breakpoint()
                         col_total = (dfj[f'{sy}_MAH'] + dfj[f'{sy}_MLLW'])
                         if col_total.max() > 1:
                             print ('How are we losing from both MLLW and MAH?')
@@ -330,44 +332,33 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
         if dupe_polys:
             # gdf_res_de = pd.concat([gdf_res_de, pd.concat(new_rows)]).sort_index()
             gdf_res_de = pd.concat([gdf_res_de, gpd.GeoDataFrame(new_rows)]).sort_index()
-            
+
+        # NAD83 / California Albers, units =m 
+        gdf_res_de['area'] = gdf_res_de.set_crs(4326).to_crs(3310).area
+        gdf_res_de['area_lost'] = gdf_res_de['area'] * (gdf_res_de['pct_lost']*0.01)
+
         dst = path_res / f'{hab}_polygons_lost_{yeari}{vlm_ext}{s2_ext}.GeoJSON' 
         gdf_res_de.to_file(dst)
         log.info(f'Wrote: {dst}')
     return
 
- # all regions, all scenarios, all years, rocky and beach should be done for SLR only, CARI polygons
- # South rocky vlm 2050 -- done
- # South beach 2050, all scenarios, vlm -- done
-    # - need s2
-
-# Central beach 2050, all scenarios vlm done
-    # need reg s2
-# 
-# North beach 2050 all scenarios vlm done
-    # need s2
-# 
-# 
-# running north/south s2 2050 only (0808) -- done???
-# running north 2100 vlm s2 and not s2 0809
-
 
 if __name__ == '__main__':
-    habits  = 'rocky'.split()
-    use_vlm = True
+    habits  = 'beach rocky'.split()
+    use_vlm = False
     use_s2  = True
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
     for habit in habits:
-        for scen0 in 'Low IntLow Int IntHigh High'.split():
-            # for year in [2050]:#, 2100]:
-            year = 2050
-            for region in 'Central North'.split():
-                scen = f'{scen0}{year}'
-                log.critical (f'Begun {habit} {region}, {scen}\n')
-                main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
-                concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
+        # for scen0 in 'Low IntLow Int IntHigh High'.split():
+        for scen0 in 'High'.split():
+            for year in [2050]:#, 2100]:
+                for region in 'Central'.split():
+                    scen = f'{scen0}{year}'
+                    log.critical (f'Begun {habit} {region}, {scen}\n')
+                    main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
+                    concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
 
 
     ## only when all scenarios/years are done for CARI/CARI_VLM/S2/S2_VLM
-    # concat_results_poly('beach', path_wd=path_wd)
-    # concat_results_poly('rocky', path_wd=path_wd)
+    # concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
+    # concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
