@@ -344,7 +344,7 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
 
 
 if __name__ == '__main__':
-    habits  = 'beach rocky'.split()
+    habits  = 'rocky'.split()
     use_vlm = False
     use_s2  = True
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
@@ -354,11 +354,16 @@ if __name__ == '__main__':
             for year in [2050]:#, 2100]:
                 for region in 'Central'.split():
                     scen = f'{scen0}{year}'
-                    log.critical (f'Begun {habit} {region}, {scen}\n')
-                    main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
-                    concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
+                    # log.critical (f'Begun {habit} {region}, {scen}\n')
+                    # main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
+                    # concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
 
 
     ## only when all scenarios/years are done for CARI/CARI_VLM/S2/S2_VLM
-    # concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
-    # concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
+    concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
+    concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
+
+    use_vlm=True
+    concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
+    concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
+
