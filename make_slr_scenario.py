@@ -5,7 +5,7 @@ def get_tidal_datum(path_wd, kind='MLLW'):
     kind = kind.upper()
     assert kind in 'MLLW MHW MAH'.split(), 'Choose MLLW, MHW, or MAH'
     kind = 'MHHW_Plus_MAH' if kind == 'MAH' else kind
-    
+
     path_td = path_wd / 'JPL_Share' / f'{kind}_NAVD88m_IDW.tif'
     ds = xrr.open_rasterio(path_td)
     da = ds.sel(band=1)
@@ -18,7 +18,7 @@ def get_scenario_new(path_wd, scenario='Int', quant=50, year='2050'):
     df = pd.read_excel(path_wd.parent / 'Projections' / 'CA' / 'CA_SW__scenarios.xlsx')
     ser = df[((df['scenario'] == scenario) & (df['quantile'] == quant))]
     slr = ser[int(year)].item() # units = mm
-    return slr/1e3 
+    return slr/1e3
 
 
 def get_vlm(path_wd, overwrite=False):
@@ -30,7 +30,7 @@ def get_vlm(path_wd, overwrite=False):
         da = xrr.open_rasterio(dst).sel(band=1)
         da = da.where(da < 1e20)
         return da.rio.write_nodata(da.rio.nodata, encoded=True, inplace=True)
-        
+
     src = path_wd / 'CA_VLM.tif'
     da_vlm = xrr.open_rasterio(src).sel(band=1).assign_attrs(units='mm/yr')
     da_vlm_re = da_vlm.rio.reproject(da0.rio.crs)
@@ -60,9 +60,9 @@ def main(path_wd, year=2050, vlm=True):
             else:
                 slr = get_scenario_new(path_wd, scenario=scen, year=year)
                 da_vlm = da_vlm_proj
-                
-            da = da0 + slr 
-            
+
+            da = da0 + slr
+
             if vlm:
                 da1 = da.copy()
                 # fails on slr = 0
@@ -73,12 +73,14 @@ def main(path_wd, year=2050, vlm=True):
                 del da
                 da = da1.copy()
                 fname = f'{fname}_VLM'
-                
+
             dst = path_wd / 'tidal_datums' / f'{fname}.tif'
             da.rio.to_raster(dst)
             log.info('Wrote: %s', dst)
-            
+
 if __name__ == '__main__':
-    path_wd = Path('/scratch/tws_grace/data/Sea_Level/SFEI')
+    # path_wd = Path('/scratch/tws_grace/data/Sea_Level/SFEI')
+    path_wd = Path('/Volumes/RADS/NFS/data/Sea_Level/SFEI')
+
     main(path_wd, 2050)
     main(path_wd, 2100)
