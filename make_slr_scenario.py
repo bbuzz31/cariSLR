@@ -1,6 +1,7 @@
 from shared import *
 import logging
 
+
 def get_tidal_datum(path_wd, kind='MLLW'):
     kind = kind.upper()
     assert kind in 'MLLW MHW MAH'.split(), 'Choose MLLW, MHW, or MAH'
@@ -79,8 +80,8 @@ def main(path_wd, year=2050, vlm=True):
             log.info('Wrote: %s', dst)
 
 if __name__ == '__main__':
-    # path_wd = Path('/scratch/tws_grace/data/Sea_Level/SFEI')
-    path_wd = Path('/Volumes/RADS/NFS/data/Sea_Level/SFEI')
+    path_wd = Path('/scratch/tws_grace/data/Sea_Level/SFEI')
+    # path_wd = Path('/Volumes/RADS/NFS/data/Sea_Level/SFEI')
 
     main(path_wd, 2050)
     main(path_wd, 2100)

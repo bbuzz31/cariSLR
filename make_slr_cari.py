@@ -92,6 +92,7 @@ def compare_elevations_poly(poly_in, da_dem_in, da_mw_0_in, da_mw_slr_in, kind='
 
 
 def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use_s2=False, test=False):
+    """ Run the actual analysis; Save estimates of losses per each DEM in the dems folder as GeoJSON """
     habit = habit.lower()
     tstl = '_test' if test else ''
     s2 = '_s2' if use_s2 else ''
@@ -190,7 +191,7 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
             
             lst_gdfs.append(df2gdf(df_m, 'all', epsg=Obj.epsg))
 
-            if test:
+            if test and (df_m['MLLW'] - df_m[f'{scen}_MLLW']).sum() > 0:
                 return da_dem1, da_mllw_re, da_mllw_slr_re, df_m, poly
 
             del df_m, da_dem1, df_mllw
@@ -213,7 +214,6 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
 def concat_results(region, habit, scen='Int2050', path_wd=None, use_vlm=False, use_s2=False):
     """ Concatenate the beaches/rocky into a single csv') 
 
-    Alternatively try a netcdf
     """
     habit = habit.lower()
     assert habit in 'beach rocky rocky_mllw'.split(), f'Incorrect habit: {habit}'
@@ -333,9 +333,11 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
             # gdf_res_de = pd.concat([gdf_res_de, pd.concat(new_rows)]).sort_index()
             gdf_res_de = pd.concat([gdf_res_de, gpd.GeoDataFrame(new_rows)]).sort_index()
 
-        # NAD83 / California Albers, units =m 
+        # NAD83 / California Albers, units = m 
         gdf_res_de['area'] = gdf_res_de.set_crs(4326).to_crs(3310).area
         gdf_res_de['area_lost'] = gdf_res_de['area'] * (gdf_res_de['pct_lost']*0.01)
+        if hab == 'rocky':
+            gdf_res_de['area_gain'] = gdf_res_de['area'] * (gdf_res_de['pct_gain']*0.01)
 
         dst = path_res / f'{hab}_polygons_lost_{yeari}{vlm_ext}{s2_ext}.GeoJSON' 
         gdf_res_de.to_file(dst)
@@ -346,7 +348,7 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
 if __name__ == '__main__':
     habits  = 'rocky'.split()
     use_vlm = False
-    use_s2  = True
+    use_s2  = False
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
     for habit in habits:
         # for scen0 in 'Low IntLow Int IntHigh High'.split():

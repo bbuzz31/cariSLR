@@ -19,7 +19,10 @@ from osgeo import gdal
 from shapely.geometry import Point
 from fiona.drvsupport import supported_drivers
 
-from cariLog import log2file, logger as log
+try:
+    from cariLog import log2file, logger as log
+except:
+    pass
 
 supported_drivers['LIBKML'] = 'rw'
 gdal.SetConfigOption('OGR_GEOJSON_MAX_OBJ_SIZE', '64000MB') # for fiona loading
