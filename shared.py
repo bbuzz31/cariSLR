@@ -196,6 +196,28 @@ def savefigs(path, figures=False, overwrite=False, extend='', alpha=0, **plot_kw
             plt.close(fig)
 
 
+def make_cari_habitats(path_wd, cari_gdb='Coastal_Habitats_v2.gdb'):
+    """ Pull the CARI habitats from the geodatabase at https://www.sfei.org/data """
+    # slivers removed, no CARI ID
+    srcd = Path(path_wd) / cari_gdb
+    assert op.exists(srcd), f'Cannot find CARI Habitats at: {srcd}'
+    dstd = srcd.parent / 'CARI_polygons'
+    dstd.mkdir(exist_ok=True)
+    gdf = gpd.read_file(srcd)
+
+    habits_beach = ['Marine Beach Natural Intertidal Non-vegetated']
+    habits_rocky = ['Marine Rocky Shore Natural Intertidal', 'Marine Rocky Shore Unnatural Intertidal']
+    for i, habits in enumerate([habits_beach, habits_rocky]):
+        k = 'Beach' if 'Beach' in habits[0] else 'Rocky' 
+        
+        gdf_habit = gdf[gdf['clicklabel'].isin(habits)].copy()
+        gdf_habit['CARI_id'] = gdf_habit.index
+        dst_habit = dstd / f'Cari_{k}.GeoJSON'
+        gdf_habit.to_file(dst_habit)
+        print (f'Wrote: {dst_habit}')
+    return
+
+
 def get_enso_map(path_enso, epsgi, verbose=False):
     """ make a map of ENSO filenames to their bounds in a specific EPSG """
     from shapely.geometry import box
@@ -318,3 +340,7 @@ class SetupProj(CARIRegion):
             self.da_mah_0, self.da_mah_slr = lst_das
  
         return
+
+if __name__ == '__main__':
+    path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'
+    make_cari_habitats(path_wd)
