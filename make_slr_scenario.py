@@ -16,7 +16,10 @@ def get_tidal_datum(path_wd, kind='MLLW'):
 
 
 def get_scenario_new(path_wd, scenario='Int', quant=50, year='2050'):
-    df = pd.read_excel(path_wd.parent / 'Projections' / 'CA' / 'CA_SW__scenarios.xlsx')
+    src = path_wd.parent / 'Projections' / 'CA' / 'CA_SW__scenarios.xlsx'
+    if not src.exists():
+        src = path_wd / 'Projections' / 'CA' / 'CA_SW__scenarios.xlsx'
+    df = pd.read_excel(src)
     ser = df[((df['scenario'] == scenario) & (df['quantile'] == quant))]
     slr = ser[int(year)].item() # units = mm
     return slr/1e3
@@ -76,6 +79,7 @@ def main(path_wd, year=2050, vlm=True):
                 fname = f'{fname}_VLM'
 
             dst = path_wd / 'tidal_datums' / f'{fname}.tif'
+            dst.parent.mkdir(exist_ok=True)
             da.rio.to_raster(dst)
             log.info('Wrote: %s', dst)
 

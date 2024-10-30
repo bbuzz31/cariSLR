@@ -57,8 +57,8 @@ def compare_elevations_poly(poly_in, da_dem_in, da_mw_0_in, da_mw_slr_in, kind='
         da_dem_mw_slr_poly = (da_dem_in>da_mw_slr_poly).astype(int)
  
         # preserve nodata values in dem for more accurate percentages
-        da_dem_mw_0_poly = da_dem_mw_0_poly.where(~da_dem_in.isnull())
-        da_dem_mw_slr_poly = da_dem_mw_slr_poly.where(~da_dem_in.isnull())
+        da_dem_mw_0_poly = da_dem_mw_0_poly.where(da_dem_in.notnull())
+        da_dem_mw_slr_poly = da_dem_mw_slr_poly.where(da_dem_in.notnull())
         
         pct0  = 100*(da_dem_mw_0_poly.mean())
         pct1  = 100*(da_dem_mw_slr_poly.mean())
@@ -212,9 +212,7 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
 
 
 def concat_results(region, habit, scen='Int2050', path_wd=None, use_vlm=False, use_s2=False):
-    """ Concatenate the beaches/rocky into a single csv') 
-
-    """
+    """ Concatenate the beaches/rocky geojson results into a single csv """
     habit = habit.lower()
     assert habit in 'beach rocky rocky_mllw'.split(), f'Incorrect habit: {habit}'
     Obj = SetupProj(region, habit, scen, path_wd, use_vlm, use_s2)
@@ -309,12 +307,11 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
                             breakpoint()
                         pct_total = -100*col_total.mean()
                         lst_res.append((poly, pct_lost, pct_gain, pct_total, sceni, yeari, reg, geom)) 
-                        cols = 'cari_ix pct_lost pct_gain pct_total scenario year region geometry'.split()
-                        
+        cols = 'cari_ix pct_lost pct_gain pct_total scenario year region geometry'.split()
         df_res_poly = pd.DataFrame(lst_res, columns=cols)
         gdf_res_poly = gpd.GeoDataFrame(df_res_poly)
         
-        ## de-duplicate if necessary
+        ## get rid of the duplicate polygons (partly in different regions) and replace with mean
         dupe_polys = []
         new_rows = []
         for ix, dfi in gdf_res_poly.groupby('scenario year cari_ix'.split()):
@@ -327,7 +324,6 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
                 dupe_polys.append(row['cari_ix'].item())
                 new_rows.append(row)
         
-        # get rid of the duplicate polygons (partly in different regions) and replace with mean
         gdf_res_de = gdf_res_poly[~gdf_res_poly['cari_ix'].isin(dupe_polys)]
         if dupe_polys:
             # gdf_res_de = pd.concat([gdf_res_de, pd.concat(new_rows)]).sort_index()

@@ -13,12 +13,12 @@ import time
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import xarray as xr
 import rioxarray as xrr
 
 from osgeo import gdal
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 from fiona.drvsupport import supported_drivers
-
 try:
     from cariLog import log2file, logger as log
 except:
@@ -27,8 +27,48 @@ except:
 supported_drivers['LIBKML'] = 'rw'
 gdal.SetConfigOption('OGR_GEOJSON_MAX_OBJ_SIZE', '64000MB') # for fiona loading
 
-warnings.filterwarnings("ignore", message="The nodata value *", category=UserWarning, module="rioxarray.raster_writer")
+warnings.filterwarnings("ignore", message="The nodata value *", 
+                        category=UserWarning, module="rioxarray.raster_writer")
+#### --------------------------------------------------------------------------------- Globals
+regions = 'South Central North'.split()
+# scen = scen0.replace('_rsl', '')
+# s2_ext = '_s2' if use_s2 else ''
+# vlm_ext = '_vlm' if use_vlm else ''
 
+try:
+    import contextily as cx
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    from cartopy.io import img_tiles as cimgt
+    
+    basemap_d = cimgt.GoogleTiles(url='https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade_Dark/MapServer/tile/{z}/{y}/{x}.jpg')
+    basemap   = cimgt.GoogleTiles(url='https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}.jpg')
+    # basemap   = cimgt.GoogleTiles(url='https://www.google.cn/maps/vt?lyrs=s@189&gl=cn&x={x}&y={y}&z={z}'))
+    
+    cxbasemap   = cx.providers.Esri.WorldImagery
+    cxbasemap_d = cx.providers.CartoDB.DarkMatter
+    cxbasemap_t = cx.providers.USGS.USTopo
+    projp = ccrs.PlateCarree()
+    dct_proju = {'Central': ccrs.UTM(10), 'North': ccrs.UTM(10), 'South': ccrs.UTM(11)}
+    
+except:
+    print ('Cannot plot. Probably cartopy/contextily not installed')
+    
+GFS = GS  = 14 
+TFS = 20 # title
+XFS = YFS = 16 # x/y axis
+GFS = 14 # deg marks
+CFS = 18 # colorbar labels
+
+pt_parms  = dict(verticalalignment='top', fontsize=20, color='w',
+                bbox=dict(boxstyle='square,pad=0.05', facecolor='black'))
+
+
+sty_cari = dict(facecolor='none', edgecolor='deeppink') 
+sty_coned = dict(facecolor='none', edgecolor='red', linestyle='--')
+
+
+#### --------------------------------------------------------------------------------- Helper Functions
 
 def df2gdf(path_df, attrcols=[], dst=None, epsg=4326):
     """
@@ -84,6 +124,110 @@ def df2gdf(path_df, attrcols=[], dst=None, epsg=4326):
     return gdf
 
 
+def cartopy_cbar(im, xlabel='', orient='vertical', fontsize=13, labelsize=13, **plot_kws):
+    # if passing an axes, try to get children; doesnt work yet
+    # im     = im.get_children()[0] if 'GeoAxes' in type(im) else im
+    im = im.get_children()[0] if isinstance(im, cartopy.mpl.geoaxes.GeoAxesSubplot) else im
+    dct_ps = dict(ylabel='', size='5%', pad=0.15, ticks=None, pack_start=False)
+    dct_ps.update(**plot_kws)
+
+    divider = make_axes_locatable(im.axes)
+    if orient == 'vertical':
+        cbar_ax = divider.new_horizontal(size=dct_ps['size'], pad=dct_ps['pad'],
+                            axes_class=plt.Axes, pack_start=dct_ps['pack_start'])
+    else:
+        cbar_ax = divider.new_vertical(size=dct_ps['size'], pad=dct_ps['pad'],
+                            axes_class=plt.Axes)#, pack_start=dct_ps['pack_start'])
+
+    cbar_ax = im.get_figure().add_axes(cbar_ax)
+    cbar_ax.set_xlabel(xlabel) if isinstance(xlabel, str) else cbar_ax.set_xlabel(xlabel[0], size=xlabel[1], labelpad=10)
+    cbar_ax.set_yscale('linear')
+    cbar_ax.tick_params(labelsize=labelsize)
+
+    cbar    = plt.colorbar(im, cax=cbar_ax, ticks=dct_ps['ticks'], spacing='uniform', extend=dct_ps.get('extend', 'neither'))
+    cbar.set_label(dct_ps['ylabel'], rotation=270, labelpad=dct_ps.get('labelpad', 20), fontsize=fontsize)
+
+    return cbar
+
+
+def savefigs(path, figures=False, overwrite=False, extend='', alpha=0, **plot_kws):
+    """
+    Save current fig(s) to path
+    Default save to path/Figures
+    Optionally overwrite
+    Optionally add an extension, e.g. in a loop for different grids
+    Optionally set background transparent (default)
+    plot_kws can contain dpi or fmt
+    """
+    path_figdir = op.join(path, 'Figures') if figures else path
+    ext_fmt     = plot_kws.get('fmt', mpl.rcParams['savefig.format'])
+    if not op.isdir(path_figdir):
+        os.makedirs(path_figdir)
+    figs = list(map(plt.figure, plt.get_fignums()))
+    for fig in figs:
+
+        fig.patch.set_alpha(alpha)
+
+        #mpl.rcParams['figure.figsize']   = (18, 12) # figure out a way to make this work
+        label    = fig.get_label() if fig.get_label() else 'tmp'
+        path_fig = op.join(path_figdir, f'{label}.{ext_fmt}')
+        i = 1
+        while op.exists(path_fig):
+            if overwrite: break
+            path, ext = op.splitext(path_fig)
+            ## overwrite last number
+            if re.search(r'\d+$', path) is not None:
+                path = path.rsplit('-', 1)[0]
+            path_fig = f'{path}-{i}{ext}'
+            label    = op.splitext(op.basename(path_fig))[0]
+            i += 1
+
+        if len(extend) > 0: label += str(extend)
+        label_clean = label.replace('.', '-')
+        dpi = plot_kws.get('dpi', fig.dpi)
+        kws = dict(dpi=dpi, bbox_inches='tight', pad_inches=0.025, transparent=False,
+                    edgecolor=fig.get_edgecolor())
+        kws.update(plot_kws)
+
+        dst = op.join(path_figdir, f'{label_clean}.{ext_fmt}')
+        fig.savefig(dst, **kws)
+        log.info('Saved figure: %s', dst)
+        if 'SSH_CONNECTION' in os.environ:
+            plt.close(fig)
+
+
+def get_enso_map(path_enso, epsgi, verbose=False):
+    """ make a map of ENSO filenames to their bounds in a specific EPSG """
+    from shapely.geometry import box
+    paths, polys = [], []
+    dst = path_enso / f'enso_map_{epsgi}.GeoJSON'
+    if dst.exists():
+        # print (f'Using existing enso filename map for EPSG: {epsgi}') if verbose else ''
+        return gpd.read_file(dst)
+
+    lst_dems = sorted(list((path_enso / 'UTM10').glob('*.tif')))
+    if epsgi == 26911 or epsgi == 4326:
+        lst_dems = sorted(lst_dems + list((path_enso / 'UTM11').glob('*.tif')))
+    
+    ## ENSO is UTM10, want to convert to 3717 or 26911(South) (or 4326)
+    for i, enso in enumerate(lst_dems):
+        da_enso = xrr.open_rasterio(enso).sel(band=1)
+        gser_enso = gpd.GeoSeries(box(*da_enso.rio.bounds()), crs=da_enso.rio.crs)
+        poly = gser_enso.to_crs(epsgi).geometry.item()
+        if i % 100 == 0:
+            log.debug (f'Projecting bounds to: {enso.stem}, {i} of {len(lst_dems)}')
+
+        paths.append(str(enso))
+        polys.append(poly)
+
+    gdf = gpd.GeoDataFrame(paths, geometry=polys, columns=['path'], crs=epsgi)
+    gdf.to_file(dst)
+    log.info (f'Wrote enso to dem map for EPSG: {epsgi}')
+    return gdf
+    
+
+#### --------------------------------------------------------------------------------- Classes
+
 class CARIRegion(object):
     """
     base class for CARI region (North, Central, South)
@@ -97,6 +241,8 @@ class CARIRegion(object):
         self.use_s2 = use_s2
         self.path_res = Path(self.path_wd) / 'results'
         self.path_enso_dems = self.path_res.parent / 'dems' / 'West_Coast_El_Nino'
+        self.path_res.mkdir(exist_ok=True)
+        self.path_enso_dems.mkdir(exist_ok=True)
         self.setup_region()
 
     
@@ -110,7 +256,8 @@ class CARIRegion(object):
         stem_ca_dems, self.stem, self.epsg, stem_bounds = dct_reg_info[self.region]
         
         self.path_ca_dems = path_dems / stem_ca_dems
-        gdf_coned_bounds = gpd.read_file(self.path_ca_dems / stem_bounds).to_crs(self.epsg)
+        layer = 'kml_image_ca2017_central_coned_m8657_L1_0_0' if self.region == 'Central' else None
+        gdf_coned_bounds = gpd.read_file(self.path_ca_dems / stem_bounds, layer=layer).to_crs(self.epsg)
         self.Wr, self.Sr, self.Er, self.Nr = gdf_coned_bounds.total_bounds
         return
 
@@ -171,33 +318,3 @@ class SetupProj(CARIRegion):
             self.da_mah_0, self.da_mah_slr = lst_das
  
         return
-
-
-def get_enso_map(path_enso, epsgi, verbose=False):
-    """ make a map of ENSO filenames to their bounds in a specific EPSG """
-    from shapely.geometry import box
-    paths, polys = [], []
-    dst = path_enso / f'enso_map_{epsgi}.GeoJSON'
-    if dst.exists():
-        # print (f'Using existing enso filename map for EPSG: {epsgi}') if verbose else ''
-        return gpd.read_file(dst)
-
-    lst_dems = sorted(list((path_enso / 'UTM10').glob('*.tif')))
-    if epsgi == 26911 or epsgi == 4326:
-        lst_dems = sorted(lst_dems + list((path_enso / 'UTM11').glob('*.tif')))
-    
-    ## ENSO is UTM10, want to convert to 3717 or 26911(South) (or 4326)
-    for i, enso in enumerate(lst_dems):
-        da_enso = xrr.open_rasterio(enso).sel(band=1)
-        gser_enso = gpd.GeoSeries(box(*da_enso.rio.bounds()), crs=da_enso.rio.crs)
-        poly = gser_enso.to_crs(epsgi).geometry.item()
-        if i % 100 == 0:
-            log.debug (f'Projecting bounds to: {enso.stem}, {i} of {len(lst_dems)}')
-
-        paths.append(str(enso))
-        polys.append(poly)
-
-    gdf = gpd.GeoDataFrame(paths, geometry=polys, columns=['path'], crs=epsgi)
-    gdf.to_file(dst)
-    log.info (f'Wrote enso to dem map for EPSG: {epsgi}')
-    return gdf
