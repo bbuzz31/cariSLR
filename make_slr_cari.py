@@ -157,7 +157,8 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
             poly = row.geometry
             cari_id = row['CARI_id']
             
-            da_dem1 = da_dem.rio.clip([poly], gdf_cari_tile.crs, drop=True, invert=False, all_touched=True)
+            da_dem1 = da_dem.rio.clip([poly], gdf_cari_tile.crs, 
+                                      drop=True, invert=False, all_touched=True).assign_attrs(tile=dem.stem)
             try:
                 da_dem.rio.clip([poly], gdf_cari_tile.crs, all_touched=False)
             except:
