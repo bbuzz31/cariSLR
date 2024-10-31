@@ -31,6 +31,9 @@ warnings.filterwarnings("ignore", message="The nodata value *",
                         category=UserWarning, module="rioxarray.raster_writer")
 #### --------------------------------------------------------------------------------- Globals
 regions = 'South Central North'.split()
+# dct_classes = {'beach': clicklabes, 'wetlands...}
+               
+            
 # scen = scen0.replace('_rsl', '')
 # s2_ext = '_s2' if use_s2 else ''
 # vlm_ext = '_vlm' if use_vlm else ''

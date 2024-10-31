@@ -51,7 +51,9 @@ def main(path_wd, year=2050, vlm=True):
     da_vlm = get_vlm(path_wd, overwrite=False)
     # convert to meters in the future and put 0 where nan
     da_vlm_proj = da_vlm * (year-2024) / 1000
-    da_vlm_proj = da_vlm_proj.where(da_vlm_proj.notnull(), 0)
+    da_vlm_proj = da_vlm_proj.where(da_vlm_proj.notnull(), 0).assign_attrs(units='m')
+    da_vlm_proj.to_netcdf(path_wd / f'CA_VLM_{year}.nc') # in case you want to save future land elevation
+    
     for kind in 'MLLW MAH'.split():
         da0 = get_tidal_datum(path_wd, kind) # 300 m
         for scen in '0 Low IntLow Int IntHigh High'.split():

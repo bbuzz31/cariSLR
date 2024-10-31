@@ -165,9 +165,6 @@ def main(region, habit='rocky', scen='Int2050', path_wd=None, use_vlm=False, use
                 log.warning(f'The DEM only lightly touches polygon: {poly_ix} of {dem.stem}, skipping.')
                 continue
                 
-            if da_dem1.isnull().all():
-                log.warning(f'No actual DEM values within {habit} polygon {poly_ix} of {dem.stem}, skipping.')
-            
             log.critical (f'{dem.stem}, polyix={poly_ix} cari id={cari_id}:')
             df_mllw = compare_elevations_poly(poly, da_dem1, da_mllw_re, da_mllw_slr_re, 'MLLW')
             
@@ -265,7 +262,7 @@ def concat_results(region, habit, scen='Int2050', path_wd=None, use_vlm=False, u
 
 
 def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm=False, use_s2=False):
-    """ Calculate the percent lost in each polygon and write to GeoJSON """
+    """ Calculate the area/percent lost in each polygon and write to GeoJSON """
     path_wd = Path(os.getenv('dataroot')) / 'Sea_Level' / 'SFEI'  if path_wd is None else path_wd
     path_res = path_wd / 'results'
     s2_ext = '_s2' if use_s2 else ''
@@ -303,6 +300,7 @@ def concat_results_poly(habit='beach', years=[2050, 2100], path_wd=None, use_vlm
                         pct_gain = -100 * dfj[f'{sy}_MAH'].mean()
                         
                         col_total = (dfj[f'{sy}_MAH'] + dfj[f'{sy}_MLLW'])
+                        # this doesnt happen
                         if col_total.max() > 1:
                             print ('How are we losing from both MLLW and MAH?')
                             breakpoint()
@@ -354,15 +352,15 @@ if __name__ == '__main__':
                 for region in 'Central'.split():
                     scen = f'{scen0}{year}'
                     # log.critical (f'Begun {habit} {region}, {scen}\n')
-                    # main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
-                    # concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
+                    main(region, habit, scen, path_wd, use_s2=use_s2, use_vlm=use_vlm, test=False)
+                    concat_results(region, habit, scen, path_wd, use_vlm=use_vlm, use_s2=use_s2)
 
 
     ## only when all scenarios/years are done for CARI/CARI_VLM/S2/S2_VLM
-    concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
-    concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
+    # concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
+    # concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
 
-    use_vlm=True
-    concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
-    concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
+    # use_vlm=True
+    # concat_results_poly('beach', [2050, 2100], path_wd, use_vlm, use_s2)
+    # concat_results_poly('rocky', [2050, 2100], path_wd, use_vlm, use_s2)
 

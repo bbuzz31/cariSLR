@@ -8,7 +8,7 @@ Use conda/mamba/pip to install the python packages in `requirements.txt`
 ## Required Files
 - CA State SLR Scenarios (included here)
 - CARI Geodatabase: https://www.sfei.org/data
-- Interpolated MLLW/MHHW+MAH: contact SFEI 
+- Interpolated MLLW/MHHW+MAH: derived and converted into NAVD88 using NOAA's VDatum tool (https://vdatum.noaa.gov/). Contact SFEI for details.
 - InSAR VLM (optional): https://zenodo.org/records/11154177
 
 ## Required Directory Structure
